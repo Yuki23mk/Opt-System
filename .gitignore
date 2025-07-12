@@ -1,0 +1,15 @@
+# 環境変数（念のため）
+**/.env
+**/.env.*
+
+# データベース
+**/*.db
+**/*.db-journal
+
+# ビルド成果物（コピー時に含まれる可能性）
+**/.next/
+**/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

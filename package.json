@@ -1,0 +1,19 @@
+{
+  "name": "opt-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n \"API,FRONTEND\" -c \"bgBlue.bold,bgGreen.bold\" \"npm run dev:api\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd apps/frontend && npm run dev",
+    "dev:api": "cd apps/api && npm run dev",
+    "dev:admin": "cd apps/admin && npm run dev",
+    "build": "npm run build:api && npm run build:frontend",
+    "build:frontend": "cd apps/frontend && npm run build",
+    "build:api": "cd apps/api && npm run build",
+    "build:admin": "cd apps/admin && npm run build",
+    "install:all": "npm install && cd apps/frontend && npm install && cd ../api && npm install && cd ../admin && npm install && cd ../.."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
