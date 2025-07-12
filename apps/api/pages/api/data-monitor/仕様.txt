@@ -1,0 +1,9 @@
+pages/
+└── api/
+    └── data-monitor/
+        ├── categories/
+        │   ├── index.ts       // GET, POST, PUT, DELETE
+        ├── projects/
+        │   ├── index.ts       // GET, POST, PUT, DELETE
+        └── records/
+            ├── index.ts       // GET, POST, PUT, DELETE

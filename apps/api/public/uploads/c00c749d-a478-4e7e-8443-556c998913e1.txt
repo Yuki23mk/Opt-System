@@ -1,0 +1,36 @@
+/* より濃い色合いに調整したカラーパレット */
+
+/* グレースケール（コントラスト強化） */
+--color-slate-50: #f8fafc     /* 背景色（最も薄い） */
+--color-slate-100: #f1f5f9    /* カード背景 */
+--color-slate-200: #e2e8f0    /* ボーダー */
+--color-slate-300: #cbd5e1    /* 無効状態 */
+--color-slate-400: #94a3b8    /* プレースホルダー */
+--color-slate-500: #64748b    /* セカンダリテキスト */
+--color-slate-600: #475569    /* 通常テキスト（強化） */
+--color-slate-700: #334155    /* 重要テキスト（強化） */
+--color-slate-800: #1e293b    /* 見出し（強化） */
+--color-slate-900: #0f172a    /* 最も濃いテキスト（強化） */
+
+/* 成功・安全（濃いティール） */
+--color-teal-50: #f0fdfa
+--color-teal-100: #ccfbf1
+--color-teal-500: #14b8a6      /* メインのティール */
+--color-teal-600: #0d9488      /* ホバー */
+--color-teal-700: #0f766e      /* アクティブ（強化） */
+--color-teal-800: #115e59      /* 新規追加：より濃いティール */
+
+/* エラー・削除（濃い赤） */
+--color-red-50: #fef2f2
+--color-red-100: #fee2e2
+--color-red-500: #ef4444      /* メインの赤 */
+--color-red-600: #dc2626      /* ホバー */
+--color-red-700: #b91c1c      /* アクティブ（強化） */
+--color-red-800: #991b1b      /* 新規追加：より濃い赤 */
+
+/* 警告（濃いオレンジ） */
+--color-amber-50: #fffbeb
+--color-amber-100: #fef3c7
+--color-amber-500: #f59e0b     /* メインの警告色 */
+--color-amber-600: #d97706     /* ホバー（強化） */
+--color-amber-700: #b45309     /* 新規追加：より濃いオレンジ */
