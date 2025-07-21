@@ -1,0 +1,10 @@
+OptiOil-API/pages/api/
+├── auth/
+│   └── me_get.ts          ✅ 自分のプロフィール取得
+└── users/
+    ├── me_put.ts          ✅ 自分のプロフィール更新  
+    └── [userId].ts        ✅ サブアカウント更新・削除
+
+
+auth/: 認証・自分の情報取得
+users/: ユーザー情報の変更・管理

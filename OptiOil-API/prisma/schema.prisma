@@ -1,0 +1,454 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id                Int                 @id @default(autoincrement())
+  email             String              @unique
+  password          String
+  systemRole        String              @default("user")
+  status            String              @default("pending")
+  createdAt         DateTime            @default(now())
+  name              String
+  companyId         Int
+  department        String?
+  position          String?
+  phone             String?
+  createdById       Int?
+  permissions       Json?
+  
+  // ✅ 2FA関連フィールドを追加
+  twoFactorEnabled  Boolean             @default(false)        // 2FA有効/無効
+  twoFactorSecret   String?                                    // TOTPシークレットキー
+  backupCodes       Json?                                      // バックアップコード（JSON配列）
+  
+  // 🆕 パスワードリセット関連フィールド
+  resetToken        String?                                    // リセットトークン
+  resetTokenExpiry  DateTime?                                  // トークン有効期限
+  
+  addresses         Address[]
+  Cart              Cart[]              @relation("UserToCart")
+  equipments        Equipment[]
+  uploadedDocuments EquipmentDocument[] @relation("UploadedDocuments")
+  addedMaterials    EquipmentMaterial[] @relation("AddedMaterials")
+  orders            Order[]
+  createdBy         User?               @relation("UserCreatedBy", fields: [createdById], references: [id])
+  children          User[]              @relation("UserCreatedBy")
+  companyRel        Company             @relation(fields: [companyId], references: [id])
+  userTags          UserTag[]
+  uploadedProductDocuments ProductDocument[] @relation("UploadedProductDocuments")
+  productPreferences UserProductPreference[]
+  // 🆕 同意管理関連
+  consents          UserConsent[]
+}
+
+// 🆕 新テーブル：ユーザー同意管理
+model UserConsent {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  documentType  String   // 'terms' | 'privacy' | 'beta-terms'
+  documentVersion String // LegalDocumentのversionと対応
+  agreedAt      DateTime @default(now())
+  ipAddress     String?  // 同意時のIPアドレス
+  userAgent     String?  // 同意時のブラウザ情報
+  
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, documentType, documentVersion])
+  @@index([userId, documentType])
+}
+
+// ★★★ Productテーブル削除 ★★★
+// 全てAdminProductMaster + CompanyProductベースに統一
+
+model UserTag {
+  id               Int                @id @default(autoincrement())
+  productMasterId  Int                
+  userId           Int
+  companyId        Int
+  name             String
+  color            String             @default("blue")
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  company          Company            @relation(fields: [companyId], references: [id])
+  user             User               @relation(fields: [userId], references: [id])
+  productMaster    AdminProductMaster @relation(fields: [productMasterId], references: [id], onDelete: Cascade)
+
+  @@unique([productMasterId, userId, name])
+}
+
+model UserProductPreference {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  companyProductId Int      
+  visible          Boolean  @default(true)  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  user             User             @relation(fields: [userId], references: [id])
+  companyProduct   CompanyProduct   @relation(fields: [companyProductId], references: [id])
+  
+  @@unique([userId, companyProductId])
+}
+
+model Order {
+  id                  Int         @id @default(autoincrement())
+  orderNumber         String      @unique
+  userId              Int
+  totalAmount         Float
+  status              String      @default("pending")
+  deliveryAddressId   Int?
+  deliveryName        String
+  deliveryCompany     String?
+  deliveryZipCode     String
+  deliveryPrefecture  String
+  deliveryCity        String
+  deliveryAddress1    String
+  deliveryAddress2    String?
+  deliveryPhone       String?
+  cancelReason        String?
+  cancelRejectReason  String? 
+  adminNote          String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  user               User        @relation(fields: [userId], references: [id])
+  orderItems         OrderItem[]
+  deliveryAddress    Address?    @relation(fields: [deliveryAddressId], references: [id])
+  paperwork     OrderPaperwork[] 
+}
+
+model OrderItem {
+  id               Int            @id @default(autoincrement())
+  orderId          Int
+  companyProductId Int            // ★★★ 変更：productId → companyProductId
+  quantity         Int
+  unitPrice        Float
+  totalPrice       Float
+  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  companyProduct   CompanyProduct @relation(fields: [companyProductId], references: [id]) // ★★★ 変更
+}
+
+model Address {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  name        String
+  company     String?
+  zipCode     String
+  prefecture  String
+  city        String
+  address1    String
+  address2    String?
+  phone       String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  User        User     @relation(fields: [userId], references: [id])
+  orders      Order[]
+}
+
+model Cart {
+  id               Int            @id @default(autoincrement())
+  userId           Int
+  companyProductId Int            // ★★★ 変更：productId → companyProductId
+  quantity         Int
+  createdAt        DateTime       @default(now())
+  user             User           @relation("UserToCart", fields: [userId], references: [id])
+  companyProduct   CompanyProduct @relation("UserToCart", fields: [companyProductId], references: [id]) // ★★★ 変更
+}
+
+
+model Equipment {
+  id           Int                 @id @default(autoincrement())
+  code         String              @unique
+  category     String
+  name         String
+  manufacturer String
+  location     String?
+  manager      String?
+  userId       Int
+  companyId    Int
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  company      Company             @relation(fields: [companyId], references: [id])
+  user         User                @relation(fields: [userId], references: [id])
+  documents    EquipmentDocument[]
+  materials    EquipmentMaterial[]
+}
+
+model EquipmentDocument {
+  id             Int       @id @default(autoincrement())
+  equipmentId    Int
+  uploadedById   Int
+  companyId      Int
+  filename       String
+  storedFilename String?
+  s3Url          String?
+  mimeType       String?
+  size           Int?
+  createdAt      DateTime  @default(now())
+  company        Company   @relation("CompanyDocuments", fields: [companyId], references: [id])
+  uploadedBy     User      @relation("UploadedDocuments", fields: [uploadedById], references: [id])
+  equipment      Equipment @relation(fields: [equipmentId], references: [id])
+}
+
+model EquipmentMaterial {
+  id               Int            @id @default(autoincrement())
+  equipmentId      Int
+  companyProductId Int            // ★★★ 変更：productId → companyProductId
+  addedByUserId    Int
+  companyId        Int
+  usagePriority    Int?
+  defaultQty       Int?
+  unit             String?
+  createdAt        DateTime       @default(now())
+  company          Company        @relation("CompanyMaterials", fields: [companyId], references: [id])
+  addedBy          User           @relation("AddedMaterials", fields: [addedByUserId], references: [id])
+  companyProduct   CompanyProduct @relation(fields: [companyProductId], references: [id]) // ★★★ 変更
+  equipment        Equipment      @relation(fields: [equipmentId], references: [id])
+}
+
+model Company {
+  id                 Int                   @id @default(autoincrement())
+  name               String
+  createdAt          DateTime              @default(now())
+  companyProducts    CompanyProduct[]
+  categories         DataMonitorCategory[]
+  equipments         Equipment[]
+  equipmentDocuments EquipmentDocument[]   @relation("CompanyDocuments")
+  equipmentMaterials EquipmentMaterial[]   @relation("CompanyMaterials")
+  users              User[]
+  userTags           UserTag[]
+  productDocuments   ProductDocument[]     @relation("CompanyProductDocuments")
+}
+
+model DataMonitorCategory {
+  id        Int                  @id @default(autoincrement())
+  name      String
+  companyId Int
+  createdAt DateTime             @default(now())
+  company   Company              @relation(fields: [companyId], references: [id])
+  projects  DataMonitorProject[]
+}
+
+model DataMonitorProject {
+  id               Int                      @id @default(autoincrement())
+  name             String
+  categoryId       Int
+  limitSettings    Json?                   
+  fluidType        String?                  
+  machineId        String?   
+  measurementFields Json?                  // 🆕 プロジェクトごとの測定項目
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @default(now()) @updatedAt
+  measurements     DataMonitorMeasurement[]
+  category         DataMonitorCategory      @relation(fields: [categoryId], references: [id])
+}
+
+model DataMonitorMeasurement {
+  id            Int                @id @default(autoincrement())
+  projectId     Int
+  date          DateTime
+  values        Json
+  note          String?
+  validationStatus String?         
+  alertFlags    Json?                       
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now()) @updatedAt
+  project       DataMonitorProject @relation(fields: [projectId], references: [id])
+  
+  @@index([projectId, date])
+}
+
+model ProductDocument {
+  id               Int                @id @default(autoincrement())
+  productMasterId  Int                // ★★★ 変更：productId → productMasterId
+  companyId        Int
+  uploadedById     Int?               // ★★★ nullable に変更
+  uploadedByAdminId Int?              // ★★★ 管理者ID用フィールド追加
+  filename         String
+  storedFilename   String?
+  s3Url            String?
+  mimeType         String?
+  size             Int?
+  category         String?            @default("manual")
+  isPublic         Boolean            @default(false)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  company          Company            @relation("CompanyProductDocuments", fields: [companyId], references: [id])
+  uploadedBy       User?              @relation("UploadedProductDocuments", fields: [uploadedById], references: [id])
+  uploadedByAdmin  AdminUser?         @relation("UploadedAdminDocuments", fields: [uploadedByAdminId], references: [id]) // ★★★ 追加
+  productMaster    AdminProductMaster @relation(fields: [productMasterId], references: [id], onDelete: Cascade) // ★★★ 変更
+}
+
+// 納品書・受領書管理テーブル
+model OrderPaperwork {
+  id            Int       @id @default(autoincrement())
+  orderId       Int       
+  documentType  String    // 'delivery_note' | 'receipt'
+  documentNumber String   @unique // 納品書番号・受領書番号
+  filePath      String?   // PDFファイルパス
+  s3Url         String?   // S3 URL
+  status        String    @default("draft") // 'draft' | 'finalized'
+  deliveryDate  DateTime? // 納期日
+  isApproved    Boolean   @default(false) // 受領書承認フラグ
+  approvedAt    DateTime? // 承認日時
+  approvedBy    String?   // 承認者名
+  createdById   Int       // 作成者（管理者）ID
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // リレーション
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdBy     AdminUser @relation(fields: [createdById], references: [id])
+  
+  @@index([orderId, documentType])
+  @@unique([orderId, documentType]) // 1つの注文に対して各ドキュメントタイプは1つまで
+}
+
+//以降、管理者FE関連テーブル
+model AdminUser {
+  id                Int                 @id @default(autoincrement())
+  username          String              @unique
+  passwordHash      String
+  email             String              @unique
+  role              String
+  status            String              @default("active")
+  lastLogin         DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  
+  // ✅ 管理者用2FA関連フィールドを追加
+  twoFactorEnabled  Boolean             @default(false)        // 2FA有効/無効
+  twoFactorSecret   String?                                    // TOTPシークレットキー  
+  backupCodes       Json?                                      // バックアップコード（JSON配列）
+  
+  uploadedDocuments AdminDocument[]
+  uploadedProductDocuments ProductDocument[] @relation("UploadedAdminDocuments") // ★★★ 追加
+  sentNotifications AdminNotification[]
+  operationLogs     AdminOperationLog[]
+  adminUserNotes    AdminUserNote[]
+  createdPaperwork OrderPaperwork[] 
+   // 🆕 新規追加：法的文書のリレーション
+  legalDocuments    LegalDocument[]
+}
+
+model AdminOperationLog {
+  id         Int       @id @default(autoincrement())
+  adminId    Int
+  action     String
+  targetType String?
+  targetId   Int?
+  details    String?
+  createdAt  DateTime  @default(now())
+  admin      AdminUser @relation(fields: [adminId], references: [id])
+}
+
+model AdminProductMaster {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique
+  name            String
+  manufacturer    String
+  capacity        String
+  unit            String
+  oilType         String
+  internalTag     String?
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  companyProducts CompanyProduct[]
+  userTags        UserTag[]        
+  documents       ProductDocument[] // ★★★ 追加：ドキュメントとの関連
+}
+
+model CompanyProduct {
+  id              Int                     @id @default(autoincrement())
+  companyId       Int
+  productMasterId Int
+  enabled         Boolean                 @default(true)
+  displayOrder    Int?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  price           Float?
+  quotationExpiryDate DateTime?           // 🆕 見積期限
+  productMaster   AdminProductMaster      @relation(fields: [productMasterId], references: [id])
+  company         Company                 @relation(fields: [companyId], references: [id])
+  userPreferences UserProductPreference[]
+  priceSchedules  CompanyProductPriceSchedule[]  // 🆕 スケジュール価格との関連
+  // ★★★ 以下追加：各種関連テーブル
+  orderItems      OrderItem[]
+  cartItems       Cart[]                  @relation("UserToCart")
+  equipmentMaterials EquipmentMaterial[]
+}
+
+// 🆕 新テーブル：スケジュール価格変更
+model CompanyProductPriceSchedule {
+  id               Int            @id @default(autoincrement())
+  companyProductId Int
+  scheduledPrice   Float
+  effectiveDate    DateTime       // 適用開始日時
+  expiryDate       DateTime?      // 🆕 適用終了日時（新規追加）
+  isApplied        Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  
+  companyProduct   CompanyProduct @relation(fields: [companyProductId], references: [id], onDelete: Cascade)
+  
+  @@index([effectiveDate, isApplied])
+}
+
+model AdminUserNote {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  adminId   Int
+  note      String
+  createdAt DateTime  @default(now())
+  admin     AdminUser @relation(fields: [adminId], references: [id])
+}
+
+model AdminDocument {
+  id           Int       @id @default(autoincrement())
+  name         String
+  type         String
+  filePath     String
+  relatedType  String?
+  relatedId    Int?
+  uploadedById Int
+  createdAt    DateTime  @default(now())
+  uploadedBy   AdminUser @relation(fields: [uploadedById], references: [id])
+}
+
+model AdminNotification {
+  id         Int       @id @default(autoincrement())
+  message    String
+  targetType String
+  targetId   Int?
+  sentById   Int
+  createdAt  DateTime  @default(now())
+  sentBy     AdminUser @relation(fields: [sentById], references: [id])
+}
+
+model LegalDocument {
+  id          Int      @id @default(autoincrement())
+  type        String   // 'terms' | 'privacy' | 'beta-terms'
+  title       String   
+  content     String?  // フォールバック用（S3がない場合）
+  s3Key       String?  // S3のキー
+  s3Url       String?  // 公開URL
+  version     String   
+  isActive    Boolean  @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   Int?     
+  metadata    Json?    // 🆕 ファイル情報（ファイル名、サイズ、MIME等）
+  
+  creator     AdminUser? @relation(fields: [createdBy], references: [id])
+  
+  @@index([type, isActive])
+  @@unique([type, version])
+}

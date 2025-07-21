@@ -1,0 +1,48 @@
+{
+  "compilerOptions": {
+    /* --- 基本 --- */
+    "target": "es2017",
+    "module": "esnext",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "moduleResolution": "node",
+    "jsx": "preserve",
+    /* --- 型チェック --- */
+    "strict": true,
+    "skipLibCheck": true,
+    "allowJs": false, // JS を型チェック対象から除外
+    "checkJs": false,
+    /* --- 便利系 --- */
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    /* --- パスエイリアス --- */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    /* --- 出力 --- */
+    "noEmit": true // Next.js がビルドするのでそのまま
+    ,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "next-env.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
