@@ -1,6 +1,6 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/auth/signup.ts
- * 新規登録API（実際のメール送信対応版）
+ * 新規登録API（メインアカウント作成）
  */
 
 import type { NextApiRequest, NextApiResponse } from "next";
@@ -41,19 +41,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const domain = email.split("@")[1];
 
   try {
-    // 同じドメインのユーザーが存在するかチェック（メインアカウント重複防止）
+    // 🔧 修正: フリーメール対応 - 同じドメイン + 同じ会社名の組み合わせをチェック
     const existingMainUser = await prisma.user.findFirst({
       where: {
         email: {
           endsWith: `@${domain}`,
         },
+        companyRel: {
+          name: company.trim()
+        }
       },
+      include: {
+        companyRel: true
+      }
     });
 
     if (existingMainUser) {
       return res.status(400).json({ 
-        error: "この会社のメインアカウントは既に存在します。サブアカウント作成をご検討下さい。" 
+        error: `${company}（${domain}）は既に登録されています。同じ会社のメインアカウントは1つまでです。` 
       });
+    }
+
+    // 🆕 追加: メールアドレスの個別重複チェック
+    const existingEmail = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() }
+    });
+
+    if (existingEmail) {
+      return res.status(400).json({ error: 'このメールアドレスは既に使用されています' });
     }
 
     // 現在アクティブな利用規約とプライバシーポリシーの情報を取得
