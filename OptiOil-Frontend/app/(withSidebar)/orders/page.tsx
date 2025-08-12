@@ -1,6 +1,6 @@
 /**
  * ファイルパス: app/(withSidebar)/orders/page.tsx
- * 注文履歴ページ - 統一デザイン刷新版
+ * 注文履歴ページ - 統一デザイン刷新版 + 承認ステータス表示対応 + 安全なユーザーアクセス修正
  */
 
 "use client";
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Package, MapPin, User, Calendar, AlertCircle, Eye, X, Search, Filter, ArrowUpDown } from "lucide-react";
+import { Package, MapPin, User, Calendar, AlertCircle, Eye, X, Search, Filter, ArrowUpDown, Clock, CheckCircle, XCircle } from "lucide-react";
 
 // 🔥 共通コンポーネント導入
 import { useNotification } from "@/app/(withSidebar)/common/hooks/useNotification";
@@ -58,6 +58,26 @@ interface OrderUser {
   displayName?: string;      // ✅ 追加
 }
 
+// ✅ 承認関連の型定義を追加
+interface OrderApproval {
+  id: number;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  approver?: {
+    id: number;
+    name: string;
+    isDeleted?: boolean;
+  };
+  requester?: {
+    id: number;
+    name: string;
+    isDeleted?: boolean;
+  };
+}
+
 interface Order {
   id: number;
   orderNumber: string;
@@ -76,7 +96,11 @@ interface Order {
   cancelRejectReason?: string;
   cancelMessage?: string;
   priceNote?: string;
-  user: OrderUser;           // ✅ 型を更新
+  // ✅ 承認関連フィールドを追加
+  requiresApproval?: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  approval?: OrderApproval;
+  user?: OrderUser;          // ✅ optional に変更
   orderItems: OrderItem[];
 }
 
@@ -92,16 +116,66 @@ interface OrderDocument {
   createdAt: string;
 }
 
-// ✅ ステータスバッジをベタ塗り対応
+// ✅ 通常の注文ステータス（管理者が手動で変更するまで）
 const statusLabels: Record<string, { label: string; color: string }> = {
   pending: { label: '注文受付', color: 'bg-blue-500 text-white' },
-  confirmed: { label: '注文確定', color: 'bg-[#115e59] text-white' },
+  approved: { label: '注文受付', color: 'bg-blue-500 text-white' }, // ✅ approvedでも「注文受付」のまま
+  confirmed: { label: '注文確定', color: 'bg-[#115e59] text-white' }, // 管理者が手動で確定した場合
   processing: { label: '商品手配中', color: 'bg-amber-500 text-white' },
   shipped: { label: '配送中', color: 'bg-purple-500 text-white' },
   delivered: { label: '配送完了', color: 'bg-slate-500 text-white' },
   cancelled: { label: 'キャンセル', color: 'bg-red-500 text-white' },
   cancel_requested: { label: 'キャンセル申請中', color: 'bg-amber-500 text-white' },
   cancel_rejected: { label: 'キャンセル拒否', color: 'bg-red-600 text-white' }
+};
+
+// ✅ 承認ステータス表示（承認が必要な注文のみ）
+const approvalStatusLabels: Record<string, { label: string; color: string; icon: any }> = {
+  pending: { label: '注文承認待ち', color: 'bg-amber-500 text-white', icon: Clock },
+  approved: { label: '注文承認済', color: 'bg-emerald-500 text-white', icon: CheckCircle },
+  rejected: { label: '却下済み', color: 'bg-red-600 text-white', icon: XCircle }
+};
+
+// ✅ 注文ステータス表示コンポーネント
+const OrderStatusBadge = ({ order }: { order: Order }) => {
+  const statusInfo = statusLabels[order.status] || statusLabels['pending'];
+  
+  return (
+    <Badge className={`text-xs px-2 py-1 ${statusInfo.color} w-fit`}>
+      {statusInfo.label}
+    </Badge>
+  );
+};
+
+// ✅ 承認ステータス表示コンポーネント
+const ApprovalStatusBadge = ({ order }: { order: Order }) => {
+  if (!order.requiresApproval) {
+    return null; // 承認不要な注文には何も表示しない
+  }
+
+  const status = order.approvalStatus || 'pending';
+  const statusInfo = approvalStatusLabels[status];
+  const IconComponent = statusInfo.icon;
+
+  return (
+    <Badge className={`text-xs px-2 py-1 ${statusInfo.color} flex items-center gap-1`}>
+      <IconComponent className="h-3 w-3" />
+      {statusInfo.label}
+    </Badge>
+  );
+};
+
+// ✅ 安全なユーザー名表示のヘルパー関数
+const getSafeUserName = (user: OrderUser | undefined): string => {
+  if (!user) return '不明なユーザー';
+  if (user.status === 'deleted' || user.isDeleted) return '削除済みアカウント';
+  return user.displayName || user.name || '不明なユーザー';
+};
+
+// ✅ 安全なユーザー削除状態取得のヘルパー関数
+const isUserDeleted = (user: OrderUser | undefined): boolean => {
+  if (!user) return false;
+  return user.status === 'deleted' || user.isDeleted === true;
 };
 
 export default function OrderHistoryPage() {
@@ -252,13 +326,30 @@ export default function OrderHistoryPage() {
         // ✅ APIレスポンスに削除済み情報がない場合は、フロントエンドで生成
         const processedOrders = data.map((order: Order) => ({
           ...order,
-          user: {
+          user: order.user ? {
             ...order.user,
             isDeleted: order.user.status === "deleted" || order.user.isDeleted || false,
             displayName: (order.user.status === "deleted" || order.user.isDeleted) 
               ? "削除済みアカウント" 
               : (order.user.displayName || order.user.name)
-          }
+          } : undefined, // ✅ userがundefinedの場合はそのまま
+          // ✅ 承認者情報も削除済み対応 - より安全に
+          approval: order.approval ? {
+            ...order.approval,
+            approver: order.approval.approver ? {
+              ...order.approval.approver,
+              isDeleted: order.approval.approver.isDeleted || false
+            } : undefined,
+            requester: order.approval.requester ? {
+              ...order.approval.requester,
+              isDeleted: order.approval.requester.isDeleted || false
+            } : {
+              // ✅ requesterがundefinedの場合のフォールバック
+              id: 0,
+              name: '不明なユーザー',
+              isDeleted: false
+            }
+          } : undefined
         }));
         
         setOrders(processedOrders);
@@ -335,6 +426,107 @@ export default function OrderHistoryPage() {
   // ソート順序の切り替え
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
+
+  // ✅ 承認ステータス表示コンポーネント
+  const ApprovalStatusBadge = ({ order }: { order: Order }) => {
+    if (!order.requiresApproval) {
+      return null; // 承認不要な注文には何も表示しない
+    }
+
+    const status = order.approvalStatus || 'pending';
+    const statusInfo = approvalStatusLabels[status];
+    const IconComponent = statusInfo.icon;
+
+    return (
+      <Badge className={`text-xs px-2 py-1 ${statusInfo.color} flex items-center gap-1`}>
+        <IconComponent className="h-3 w-3" />
+        {statusInfo.label}
+      </Badge>
+    );
+  };
+
+// ✅ 承認詳細情報表示コンポーネント - 安全なアクセス
+  const ApprovalDetails = ({ order }: { order: Order }) => {
+    if (!order.requiresApproval || !order.approval) {
+      return null;
+    }
+
+    const approval = order.approval;
+    const formatDate = (dateString: string) => new Date(dateString).toLocaleString('ja-JP');
+
+    return (
+      <div className="mt-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="flex items-center gap-2 mb-2">
+          <Clock className="h-4 w-4 text-slate-600" />
+          <span className="text-sm font-medium text-slate-700">承認情報</span>
+        </div>
+        
+        <div className="space-y-2 text-sm text-slate-600">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+            <span className="font-medium">申請日時:</span>
+            <span>{formatDate(approval.requestedAt)}</span>
+          </div>
+          
+          {/* ✅ requesterの安全なアクセス */}
+          {approval.requester && (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+              <span className="font-medium">申請者:</span>
+              <DeletedUserDisplay 
+                name={approval.requester.name || '不明なユーザー'}
+                isDeleted={approval.requester.isDeleted || false}
+                showIcon={false}
+                size="sm"
+              />
+            </div>
+          )}
+
+          {approval.status === 'approved' && approval.approver && approval.approvedAt && (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+                <span className="font-medium">承認者:</span>
+                <DeletedUserDisplay 
+                  name={approval.approver.name || '不明なユーザー'}
+                  isDeleted={approval.approver.isDeleted || false}
+                  showIcon={false}
+                  size="sm"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+                <span className="font-medium">承認日時:</span>
+                <span>{formatDate(approval.approvedAt)}</span>
+              </div>
+            </>
+          )}
+
+          {approval.status === 'rejected' && approval.rejectedAt && (
+            <>
+              {approval.approver && (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+                  <span className="font-medium">却下者:</span>
+                  <DeletedUserDisplay 
+                    name={approval.approver.name || '不明なユーザー'}
+                    isDeleted={approval.approver.isDeleted || false}
+                    showIcon={false}
+                    size="sm"
+                  />
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
+                <span className="font-medium">却下日時:</span>
+                <span>{formatDate(approval.rejectedAt)}</span>
+              </div>
+              {approval.rejectionReason && (
+                <div className="mt-2 p-2 bg-red-50 rounded border border-red-200">
+                  <div className="text-xs font-medium text-red-800 mb-1">却下理由:</div>
+                  <div className="text-xs text-red-700">{approval.rejectionReason}</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -478,9 +670,12 @@ export default function OrderHistoryPage() {
                     <div className="flex-1 min-w-0">
                       <CardTitle className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm text-slate-800">
                         <span className="truncate">注文番号: {order.orderNumber}</span>
-                        <Badge className={`text-xs px-2 py-1 ${statusLabels[order.status]?.color || 'bg-slate-500 text-white'} w-fit`}>
-                          {statusLabels[order.status]?.label || order.status}
-                        </Badge>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* 通常の注文ステータス */}
+                          <OrderStatusBadge order={order} />
+                          {/* 承認ステータス（必要な場合のみ表示） */}
+                          <ApprovalStatusBadge order={order} />
+                        </div>
                       </CardTitle>
                       <CardDescription className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 mt-1 text-xs text-slate-600">
                         <span className="flex items-center gap-1">
@@ -488,9 +683,10 @@ export default function OrderHistoryPage() {
                           {new Date(order.createdAt).toLocaleDateString('ja-JP')}
                         </span>
                         <span className="flex items-center gap-1">
+                          {/* ✅ 安全なユーザー表示 */}
                           <DeletedUserDisplay 
-                            name={order.user.name}
-                            isDeleted={order.user.isDeleted || false}
+                            name={getSafeUserName(order.user)}
+                            isDeleted={isUserDeleted(order.user)}
                             showIcon={true}
                             size="sm"
                           />
@@ -529,6 +725,10 @@ export default function OrderHistoryPage() {
                     )}
                   </div>
                 </div>
+
+                  {/* ✅ 承認詳細情報を表示 */}
+                  <ApprovalDetails order={order} />
+
                   {/* キャンセル理由の表示 */}
                   {order.cancelReason && (
                     <div className="mb-3 p-2 bg-amber-50 rounded border border-amber-200">
@@ -623,20 +823,23 @@ export default function OrderHistoryPage() {
                       <div>注文日時: {new Date(selectedOrder.createdAt).toLocaleString('ja-JP')}</div>
                       <div className="flex items-center gap-2 flex-wrap">
                         注文者: 
+                        {/* ✅ 安全なユーザー表示 */}
                         <DeletedUserDisplay 
-                          name={selectedOrder.user.name}
-                          isDeleted={selectedOrder.user.isDeleted || false}
+                          name={getSafeUserName(selectedOrder.user)}
+                          isDeleted={isUserDeleted(selectedOrder.user)}
                           showIcon={false}
                           size="sm"
                         />
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        ステータス: 
-                        <Badge className={`text-xs px-2 py-1 ${statusLabels[selectedOrder.status]?.color || 'bg-slate-500 text-white'}`}>
-                          {statusLabels[selectedOrder.status]?.label || selectedOrder.status}
-                        </Badge>
-                      </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          ステータス: 
+                          <OrderStatusBadge order={selectedOrder} />
+                          <ApprovalStatusBadge order={selectedOrder} />
+                        </div>
                     </div>
+                    
+                    {/* ✅ 詳細モーダルで承認詳細情報を表示 */}
+                    <ApprovalDetails order={selectedOrder} />
                     
                     {/* 詳細画面でのキャンセル理由表示 */}
                     {selectedOrder.cancelReason && (

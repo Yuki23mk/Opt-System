@@ -93,28 +93,92 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         permissions
       } = req.body;
       
-      const parsedPermissions =
-        typeof permissions === "object" ? permissions : JSON.parse(permissions);
+      // 🔧 現在のユーザー情報を取得（既存の権限を保持するため）
+      const currentUser = await prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { permissions: true, systemRole: true }
+      });
+
+      if (!currentUser) {
+        return res.status(404).json({ message: "ユーザーが見つかりません" });
+      }
+
+      // 🔧 permissions の処理を簡素化（FE側で既にJSON.stringify済み）
+      let processedPermissions = currentUser.permissions;
+
+      if (permissions !== undefined && permissions !== null) {
+        try {
+          // 🔧 FE側でJSON.stringify()済みなので、そのままパース
+          let parsedPermissions;
+          if (typeof permissions === 'string') {
+            parsedPermissions = JSON.parse(permissions);
+          } else {
+            // 既にオブジェクトの場合はそのまま使用
+            parsedPermissions = permissions;
+          }
+
+          // 🔧 FE側で完全な権限オブジェクトを送信しているので、そのまま使用
+          processedPermissions = parsedPermissions;
+          
+          console.log('🔧 [API] permissions 更新処理:');
+          console.log('入力:', permissions);
+          console.log('パース後:', parsedPermissions);
+          console.log('最終:', processedPermissions);
+
+        } catch (error) {
+          console.error('❌ [API] permissions パースエラー:', error);
+          return res.status(400).json({ 
+            message: "権限データの形式が正しくありません",
+            details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined
+          });
+        }
+      }
       
       const updatedUser = await prisma.user.update({
         where: { id: targetUserId },
         data: {
-          name,
-          phone,
-          department,
-          position,
-          permissions: parsedPermissions,
+          ...(name !== undefined && { name }),
+          ...(phone !== undefined && { phone }),
+          ...(department !== undefined && { department }),
+          ...(position !== undefined && { position }),
+          // 🔧 Prisma Json型のキャストを追加
+          ...(processedPermissions !== undefined && { 
+            permissions: processedPermissions as any 
+          }),
         },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          department: true,
+          position: true,
+          phone: true,
+          permissions: true,
+          systemRole: true,
+          createdAt: true,
+        }
       });
 
-      return res.status(200).json({ message: "アカウント情報を更新しました", user: updatedUser });
+      console.log('✅ [API] ユーザー更新成功:', {
+        userId: targetUserId,
+        updatedPermissions: updatedUser.permissions,
+      });
+
+      return res.status(200).json({ 
+        message: "アカウント情報を更新しました", 
+        user: updatedUser 
+      });
+      
     } catch (error) {
-      console.error("更新エラー:", error);
-      return res.status(500).json({ message: "更新に失敗しました" });
+      console.error("❌ [API] 更新エラー:", error);
+      return res.status(500).json({ 
+        message: "更新に失敗しました",
+        details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined
+      });
     }
   }
 
-  // 削除処理の修正版
+// 削除処理の修正版
   if (req.method === "DELETE") {
     try {
       // ✅ 削除対象がchildアカウントかチェック

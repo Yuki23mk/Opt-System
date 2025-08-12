@@ -1,6 +1,6 @@
 /**
  * ファイル: components/Sidebar.tsx
- * 収納機能付きベタ塗りティールデザインサイドバー
+ * 収納機能付きベタ塗りティールデザインサイドバー（リアルタイム承認件数更新対応版）
  */
 
 "use client";
@@ -17,7 +17,9 @@ import {
   Settings2, 
   User,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckCircle2,  // 🆕 承認アイコン
+  AlertCircle    // 🆕 承認待ちアイコン
 } from "lucide-react";
 import { PermissionGate } from "../app/(withSidebar)/common/components/PermissionGate";
 import { ENV } from '@/lib/env';
@@ -26,6 +28,8 @@ import { ENV } from '@/lib/env';
 interface UserInfo {
   name: string;
   email: string;
+  systemRole: string;          // 🆕 承認権限判定用
+  permissions: any;            // 🆕 承認権限判定用
 }
 
 interface SidebarProps {
@@ -36,6 +40,46 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState<number>(0); // 🆕 承認待ち件数
+
+  // 🆕 承認権限があるかどうかを判定
+  const hasApprovalPermission = () => {
+    if (!userInfo) return false;
+    
+    // メインアカウントは常に承認権限あり
+    if (userInfo.systemRole === 'main') return true;
+    
+    // サブアカウント（child）の場合は permissions.orderApproval.canApprove をチェック
+    if (userInfo.systemRole === 'child') {
+      return userInfo.permissions?.orderApproval?.canApprove === true;
+    }
+    
+    return false;
+  };
+
+  // 🆕 承認待ち件数を取得
+  const fetchPendingApprovalsCount = async () => {
+    if (!hasApprovalPermission()) return;
+    
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await fetch(`${ENV.API_URL}/api/orders/pending-approvals?sortBy=requestedAt&sortOrder=desc`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPendingApprovalsCount(data.totalCount || 0);
+      }
+    } catch (error) {
+      console.error('承認待ち件数の取得に失敗:', error);
+    }
+  };
 
   // ユーザー情報を取得
   useEffect(() => {
@@ -58,26 +102,60 @@ export default function Sidebar({ isCollapsed = false, onToggle }: SidebarProps)
           const userData = data.user;
           setUserInfo({
             name: userData.name || 'ユーザー',
-            email: userData.email || ''
+            email: userData.email || '',
+            systemRole: userData.systemRole || 'child',      // 🔧 修正: デフォルトをchildに
+            permissions: userData.permissions || {}         // 🆕 追加
           });
         } else {
           console.error('ユーザー情報取得エラー:', response.status);
           setUserInfo({
             name: 'ユーザー',
-            email: ''
+            email: '',
+            systemRole: 'child',  // 🔧 修正: デフォルトをchildに
+            permissions: {}
           });
         }
       } catch (error) {
         console.error('ユーザー情報の取得に失敗:', error);
         setUserInfo({
           name: 'ユーザー',
-          email: ''
+          email: '',
+          systemRole: 'child',  // 🔧 修正: デフォルトをchildに
+          permissions: {}
         });
       }
     };
 
     fetchUserInfo();
   }, []);
+
+  // 🆕 ユーザー情報取得後に承認待ち件数を取得
+  useEffect(() => {
+    if (userInfo && hasApprovalPermission()) {
+      fetchPendingApprovalsCount();
+      
+      // 5分ごとに承認待ち件数を更新
+      const interval = setInterval(fetchPendingApprovalsCount, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [userInfo]);
+
+  // 🆕 承認処理完了時のリアルタイム更新
+  useEffect(() => {
+    const handleApprovalCountChanged = () => {
+      // 承認処理が完了した際に件数を再取得
+      if (hasApprovalPermission()) {
+        fetchPendingApprovalsCount();
+      }
+    };
+
+    // カスタムイベントをリスン
+    window.addEventListener('approvalCountChanged', handleApprovalCountChanged);
+
+    return () => {
+      window.removeEventListener('approvalCountChanged', handleApprovalCountChanged);
+    };
+  }, [userInfo]); // userInfoが変更された時に再設定
 
   // アクティブ状態の判定
   const isActive = (path: string) => pathname === path;
@@ -167,6 +245,35 @@ export default function Sidebar({ isCollapsed = false, onToggle }: SidebarProps)
               {!isCollapsed && <span className="ml-3">注文履歴</span>}
             </Link>
           </PermissionGate>
+
+          {/* 🆕 承認待ち（承認権限のあるユーザーのみ表示） */}
+          {hasApprovalPermission() && (
+            <Link 
+              href="/approval" 
+              className={getNavItemClass("/approval")}
+              title={isCollapsed ? '承認待ち' : ''}
+            >
+              <div className="relative flex items-center">
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                {/* 承認待ち件数バッジ（収納時のみ表示） */}
+                {pendingApprovalsCount > 0 && isCollapsed && (
+                  <div className="absolute -top-1 -right-1 bg-amber-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                    {pendingApprovalsCount > 9 ? '9+' : pendingApprovalsCount}
+                  </div>
+                )}
+              </div>
+              {!isCollapsed && (
+                <div className="ml-3 flex items-center justify-between flex-1">
+                  <span>承認待ち</span>
+                  {pendingApprovalsCount > 0 && (
+                    <div className="bg-amber-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                      {pendingApprovalsCount > 9 ? '9+' : pendingApprovalsCount}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Link>
+          )}
           
           {/* 設備情報 */}
           <PermissionGate permission="equipment">
@@ -234,9 +341,17 @@ export default function Sidebar({ isCollapsed = false, onToggle }: SidebarProps)
               <p className="text-white font-medium truncate">
                 {userInfo?.name || 'ログイン中...'}
               </p>
-              <p className="text-teal-200 text-xs truncate">
-                {userInfo?.email || ''}
-              </p>
+              <div className="flex items-center space-x-2">
+                <p className="text-teal-200 text-xs truncate">
+                  {userInfo?.email || ''}
+                </p>
+                {/* 🆕 承認権限バッジ */}
+                {hasApprovalPermission() && (
+                  <div className="bg-amber-500 text-white text-xs px-1 rounded" title="承認権限あり">
+                    注文承認者
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

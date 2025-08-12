@@ -45,6 +45,10 @@ model User {
   productPreferences UserProductPreference[]
   // 🆕 同意管理関連
   consents          UserConsent[]
+  
+  // 🔧 修正：注文承認フロー用リレーション
+  requestedApprovals OrderApproval[] @relation("RequestedApprovals")
+  approvedApprovals  OrderApproval[] @relation("ApprovedApprovals")
 }
 
 // 🆕 新テーブル：ユーザー同意管理
@@ -116,6 +120,9 @@ model Order {
   adminNote          String?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+  requiresApproval Boolean  @default(false)
+  approvalStatus   String?  // pending/approved/rejected
+  approval         OrderApproval?
   user               User        @relation(fields: [userId], references: [id])
   orderItems         OrderItem[]
   deliveryAddress    Address?    @relation(fields: [deliveryAddressId], references: [id])
@@ -131,6 +138,23 @@ model OrderItem {
   totalPrice       Float
   order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   companyProduct   CompanyProduct @relation(fields: [companyProductId], references: [id]) // ★★★ 変更
+}
+
+// 🔧 修正：注文承認管理テーブル
+model OrderApproval {
+  id               Int      @id @default(autoincrement())
+  orderId          Int      @unique
+  requesterId      Int
+  approverId       Int?
+  status           String   @default("pending")  // pending/approved/rejected
+  requestedAt      DateTime @default(now())
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  
+  order            Order    @relation(fields: [orderId], references: [id])
+  requester        User     @relation("RequestedApprovals", fields: [requesterId], references: [id])
+  approver         User?    @relation("ApprovedApprovals", fields: [approverId], references: [id])
 }
 
 model Address {

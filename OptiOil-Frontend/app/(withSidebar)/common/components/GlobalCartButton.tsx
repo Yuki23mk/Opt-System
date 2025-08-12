@@ -8,6 +8,7 @@ import { useCart } from "../contexts/CartContext";
 import { useConfirmModal } from "./ConfirmModal";
 import { ToastContainer, ToastItem } from "./Toast";
 import { ENV } from '@/lib/env';
+
 // 型定義
 interface DeliveryAddress {
   id: number;
@@ -47,6 +48,9 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
   
   // 注文確定
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+
+  // 🆕 ユーザー承認権限情報
+  const [userInfo, setUserInfo] = useState<any>(null);
 
   // 環境変数
   const API_URL = ENV.API_URL;
@@ -105,17 +109,42 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
     });
   };
 
-
-
   // 配送先選択ステップに移行
   const goToDeliveryStep = async () => {
     setCartStep('delivery');
     if (deliveryAddresses.length === 0 && !isLoadingAddresses) {
       await fetchDeliveryAddresses();
     }
+    // 🆕 ユーザー情報も取得
+    if (!userInfo) {
+      await fetchUserInfo();
+    }
   };
 
-  // 配送先一覧取得（正しいエンドポイント使用）
+  // 🆕 ユーザー情報取得
+  const fetchUserInfo = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await fetch(`${API_URL}/api/auth/me_get`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        setUserInfo(userData.user); // ✅ user プロパティ内にデータがある
+      }
+    } catch (error) {
+      console.error('ユーザー情報取得エラー:', error);
+    }
+  };
+
+  // 配送先一覧取得
   const fetchDeliveryAddresses = async (isRetry = false) => {
     try {
       if (!isRetry) {
@@ -135,7 +164,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         controller.abort();
       }, 30000);
 
-      // ✅ 正しいAPIエンドポイントを使用
+      // 配送先取得API
       const response = await fetch(`${API_URL}/api/delivery-addresses`, {
         method: 'GET',
         headers: {
@@ -215,7 +244,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
     }
   };
 
-  // 注文確定処理
+  // 注文確定処理（承認フロー対応）
   const handleConfirmOrder = async () => {
     if (!selectedDeliveryId) {
       addToast('配送先を選択してください', 'error');
@@ -235,6 +264,9 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         return;
       }
 
+      // 🆕 承認が必要かチェック
+      const requiresApproval = userInfo?.permissions?.orderApproval?.requiresApproval === true;
+
       // 選択された配送先の詳細情報を取得
       const selectedAddress = deliveryAddresses.find(addr => addr.id === selectedDeliveryId);
       if (!selectedAddress) {
@@ -242,9 +274,9 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         return;
       }
 
-      // ✅ 注文データを正しい形式で構築
+      // 注文データを正しい形式で構築
       const orderItems = cartState.items.map(item => ({
-        companyProductId: item.companyProductId, // ✅ 重要：companyProductIdを使用
+        companyProductId: item.companyProductId, // 重要：companyProductIdを使用
         quantity: item.quantity,
         unitPrice: item.price || 0,
         totalPrice: item.quantity * (item.price || 0)
@@ -261,7 +293,9 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         deliveryAddress2: selectedAddress.address2 || '',
         deliveryPhone: selectedAddress.phone || '',
         totalAmount: cartState.totalAmount,
-        items: orderItems
+        items: orderItems,
+        // 🆕 承認フロー対応
+        requiresApproval: requiresApproval
       };
 
       const response = await fetch(`${API_URL}/api/orders`, {
@@ -276,7 +310,20 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
       if (response.ok) {
         const orderResult = await response.json();
         
-        addToast(`注文が完了しました（注文番号: ${orderResult.orderNumber}）`, 'success', '注文完了');
+        // 🆕 承認フローに応じたメッセージ分岐
+        if (requiresApproval) {
+          addToast(
+            `承認申請を送信しました（申請番号: ${orderResult.orderNumber}）`,
+            'info',
+            '承認申請完了'
+          );
+        } else {
+          addToast(
+            `注文が完了しました（注文番号: ${orderResult.orderNumber}）`,
+            'success',
+            '注文完了'
+          );
+        }
         
         // カートをクリア
         await clearCart();
@@ -314,7 +361,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
     }
   };
 
-  // ✅ 安全なデータ取得
+  // 安全なデータ取得
   const cartItems = cartState?.items || [];
   const totalQuantity = cartState?.totalQuantity || 0;
   const totalAmount = cartState?.totalAmount || 0;
@@ -379,11 +426,11 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
             <>
               {cartStep === 'cart' && (
                 <>
-              {/* 商品一覧表示（テーブル形式） */}
-                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
-                    <table className="w-full text-sm min-w-[750px] whitespace-nowrap">
-                      <thead>
+                  {/* 商品一覧表示（テーブル形式） */}
+                  <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+                      <table className="w-full text-sm min-w-[750px] whitespace-nowrap">
+                        <thead>
                         <tr className="bg-slate-50">
                           <th className="p-2 sm:p-3 text-left font-semibold text-slate-700 min-w-[200px]">製品名</th>
                           <th className="p-2 sm:p-3 text-center font-semibold text-slate-700 min-w-[80px]">容量</th>
@@ -391,91 +438,92 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                           <th className="p-2 sm:p-3 text-center font-semibold text-slate-700 min-w-[120px]">数量</th>
                           <th className="p-2 sm:p-3 text-center font-semibold text-slate-700 min-w-[100px]">単価<br className="sm:hidden"/><span className="text-xs">(円・税抜)</span></th>
                           <th className="p-2 sm:p-3 text-center font-semibold text-slate-700 min-w-[100px]">金額<br className="sm:hidden"/><span className="text-xs">(円・税抜)</span></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cartItems.map((item, idx) => (
-                          <tr key={`${item.id}-${idx}`} className="border-t border-slate-100 hover:bg-slate-50/50">
-                            <td className="p-2 sm:p-3">
-                              <div className="flex items-center space-x-1 sm:space-x-2">
-                                <button
-                                  onClick={() => handleRemoveItem(item)}
-                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors flex-shrink-0"
-                                  title="削除"
-                                >
-                                  <X className="w-3 h-3 sm:w-4 sm:h-4" />
-                                </button>
-                                <div className="min-w-0">
-                                  <div className="font-medium text-xs sm:text-sm text-slate-800 truncate">
-                                    {item.product?.name || 'Unknown Product'}
-                                  </div>
-                                  <div className="text-xs text-slate-500 truncate">
-                                    {item.product?.manufacturer || 'Unknown Manufacturer'}
-                                  </div>
-                                  {item.enabled === false && (
-                                    <div className="flex items-center gap-1 text-xs text-amber-600 mt-1">
-                                      <AlertCircle className="w-3 h-3" />
-                                      <span className="text-xs">使用中止</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
-                              <div className="truncate">
-                                {item.product?.capacity || 'Unknown'}{item.product?.unit || ''}
-                              </div>
-                            </td>
-                            <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
-                              <div className="truncate">
-                                {item.product?.oilType || 'Unknown'}
-                              </div>
-                            </td>
-                            <td className="p-2 sm:p-3 text-center">
-                              <div className="flex items-center justify-center space-x-1 sm:space-x-2">
-                                <button
-                                  onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}
-                                  className="hover:bg-slate-100 p-1 rounded transition-colors text-slate-600 flex-shrink-0"
-                                  disabled={item.quantity <= 1}
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={item.quantity}
-                                  onChange={(e) => {
-                                    const newQuantity = parseInt(e.target.value);
-                                    const safeQuantity = isNaN(newQuantity) || newQuantity < 1 ? 1 : newQuantity;
-                                    handleUpdateQuantity(item.id, safeQuantity);
-                                  }}
-                                  className="w-12 sm:w-16 border border-slate-200 px-1 sm:px-2 py-1 text-center rounded text-xs sm:text-sm focus:border-slate-400"
-                                />
-                                <button
-                                  onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}
-                                  className="hover:bg-slate-100 p-1 rounded transition-colors text-slate-600 flex-shrink-0"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </td>
-                            <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
-                              <div className="truncate">
-                                {((item.price && item.price > 0) ? item.price : 0).toLocaleString()}
-                              </div>
-                            </td>
-                            <td className="p-2 sm:p-3 text-center font-medium text-xs sm:text-sm text-slate-800">
-                              <div className="truncate">
-                                {(item.quantity * ((item.price && item.price > 0) ? item.price : 0)).toLocaleString()}
-                              </div>
-                            </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {cartItems.map((item, idx) => (
+                            <tr key={`${item.id}-${idx}`} className="border-t border-slate-100 hover:bg-slate-50/50">
+                              <td className="p-2 sm:p-3">
+                                <div className="flex items-center space-x-1 sm:space-x-2">
+                                  <button
+                                    onClick={() => handleRemoveItem(item)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors flex-shrink-0"
+                                    title="削除"
+                                  >
+                                    <X className="w-3 h-3 sm:w-4 sm:h-4" />
+                                  </button>
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-xs sm:text-sm text-slate-800 truncate">
+                                      {item.product?.name || 'Unknown Product'}
+                                    </div>
+                                    <div className="text-xs text-slate-500 truncate">
+                                      {item.product?.manufacturer || 'Unknown Manufacturer'}
+                                    </div>
+                                    {item.enabled === false && (
+                                      <div className="flex items-center gap-1 text-xs text-amber-600 mt-1">
+                                        <AlertCircle className="w-3 h-3" />
+                                        <span className="text-xs">使用中止</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
+                                <div className="truncate">
+                                  {item.product?.capacity || 'Unknown'}{item.product?.unit || ''}
+                                </div>
+                              </td>
+                              <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
+                                <div className="truncate">
+                                  {item.product?.oilType || 'Unknown'}
+                                </div>
+                              </td>
+                              <td className="p-2 sm:p-3 text-center">
+                                <div className="flex items-center justify-center space-x-1 sm:space-x-2">
+                                  <button
+                                    onClick={() => handleUpdateQuantity(item.id, item.quantity - 1)}
+                                    className="hover:bg-slate-100 p-1 rounded transition-colors text-slate-600 flex-shrink-0"
+                                    disabled={item.quantity <= 1}
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={item.quantity}
+                                    onChange={(e) => {
+                                      const newQuantity = parseInt(e.target.value);
+                                      const safeQuantity = isNaN(newQuantity) || newQuantity < 1 ? 1 : newQuantity;
+                                      handleUpdateQuantity(item.id, safeQuantity);
+                                    }}
+                                    className="w-12 sm:w-16 border border-slate-200 px-1 sm:px-2 py-1 text-center rounded text-xs sm:text-sm focus:border-slate-400"
+                                  />
+                                  <button
+                                    onClick={() => handleUpdateQuantity(item.id, item.quantity + 1)}
+                                    className="hover:bg-slate-100 p-1 rounded transition-colors text-slate-600 flex-shrink-0"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-2 sm:p-3 text-center text-xs sm:text-sm text-slate-600">
+                                <div className="truncate">
+                                  {((item.price && item.price > 0) ? item.price : 0).toLocaleString()}
+                                </div>
+                              </td>
+                              <td className="p-2 sm:p-3 text-center font-medium text-xs sm:text-sm text-slate-800">
+                                <div className="truncate">
+                                  {(item.quantity * ((item.price && item.price > 0) ? item.price : 0)).toLocaleString()}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-                {/* 合計とボタン */}
+
+                  {/* 合計とボタン */}
                   <div className="mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-slate-200 bg-slate-50 px-3 sm:px-4 py-3 rounded-lg space-y-3 sm:space-y-0">
                     {/* スマホ：縦並び、デスクトップ：横並び */}
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center space-y-2 sm:space-y-0">
@@ -522,7 +570,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                         </Button>
                         <Button 
                           onClick={() => window.location.reload()}
-                          
+                          variant="outline"
                           className="text-sm px-4 py-2 border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
                           ページを再読み込み
@@ -556,7 +604,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                         </Button>
                         <Button 
                           onClick={() => fetchDeliveryAddresses()}
-                          
+                          variant="outline"
                           className="border-slate-300 text-slate-700 hover:bg-slate-50"
                         >
                           再読み込み
@@ -612,8 +660,8 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                   
                   <div className="flex justify-between pt-4">
                     <Button 
-                       
                       onClick={() => setCartStep('cart')}
+                      variant="outline"
                       className="border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
                       戻る
@@ -682,8 +730,8 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
 
                   <div className="flex justify-between pt-4">
                     <Button 
-                       
                       onClick={() => setCartStep('delivery')}
+                      variant="outline"
                       className="border-slate-300 text-slate-700 hover:bg-slate-50"
                     >
                       戻る
@@ -693,7 +741,9 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                       disabled={isSubmittingOrder}
                       className="bg-teal-600 hover:bg-teal-700 text-white"
                     >
-                      {isSubmittingOrder ? '注文中...' : '注文を確定する'}
+                      {isSubmittingOrder ? '送信中...' : 
+                       userInfo?.permissions?.orderApproval?.requiresApproval === true ? 
+                       '承認申請を送信' : '注文を確定する'}
                     </Button>
                   </div>
                 </div>

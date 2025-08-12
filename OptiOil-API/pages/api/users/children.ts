@@ -1,6 +1,6 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/users/children.ts
- * サブアカウント取得API - セキュリティ修正版（会社分離対応）
+ * サブアカウント取得API - セキュリティ修正版（会社分離対応と承認権限追加）
  */
 
 import type { NextApiRequest, NextApiResponse } from "next";
@@ -113,32 +113,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
      // permissions処理
     const processedChildren = children.map(child => {
-      let permissions;
-      try {
-        permissions = child.permissions ? 
-          (typeof child.permissions === 'string' ? JSON.parse(child.permissions) : child.permissions) 
-          : {};
-      } catch (e) {
-        console.warn(`⚠️ [API] permissions parse error (userId: ${child.id}):`, getErrorMessage(e));
-        permissions = {};
-      }
-      
-      // デフォルト権限設定
-      const defaultPermissions = {
-        products: permissions.products ?? true,
-        orders: permissions.orders ?? true, 
-        equipment: permissions.equipment ?? true,
-        settings: permissions.settings ?? true,
-      };
+  let permissions;
+  try {
+    permissions = child.permissions ? 
+      (typeof child.permissions === 'string' ? JSON.parse(child.permissions) : child.permissions) 
+      : {};
+  } catch (e) {
+    console.warn(`⚠️ [API] permissions parse error (userId: ${child.id}):`, e);
+    permissions = {};
+  }
+  
+  // 🔧 承認権限を含むデフォルト権限設定
+  const defaultPermissions = {
+    // 既存の画面表示権限
+    products: permissions.products ?? true,
+    orders: permissions.orders ?? true, 
+    equipment: permissions.equipment ?? true,
+    settings: permissions.settings ?? true,
+    
+    // 🆕 承認権限のデフォルト設定
+    orderApproval: {
+      canApprove: permissions.orderApproval?.canApprove ?? false,
+      requiresApproval: permissions.orderApproval?.requiresApproval ?? false,
+    }
+  };
 
-      // companyIdは返さない（セキュリティのため）
-      const { companyId, ...childWithoutCompanyId } = child;
-
-      return {
-        ...childWithoutCompanyId,
-        permissions: defaultPermissions
-      };
-    });
+  const { companyId, ...childWithoutCompanyId } = child;
+  return {
+    ...childWithoutCompanyId,
+    permissions: defaultPermissions
+  };
+ });
 
     return res.status(200).json(processedChildren);
 

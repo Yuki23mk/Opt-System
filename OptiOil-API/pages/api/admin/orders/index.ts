@@ -81,16 +81,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ error: '無効な管理者トークンです' });
     }
 
-    // 全受注データ取得 - cancelRejectReasonを含める
+    // 全受注データ取得 - cancelRejectReasonを含める + 承認待ち・却下済みを除外
     console.log('📋 受注データ取得開始...');
 
-    // まず基本的な注文データのみ取得（cancelRejectReasonを追加）
+    // ✅ ユーザFEで承認フローの回っている注文（pending_approval、rejected）は管理者画面に表示しない
+    const excludedStatuses = ['pending_approval', 'rejected'];
+
+    // まず基本的な注文データのみ取得（承認中除外・cancelRejectReasonを追加）
     const basicOrders = await prisma.order.findMany({
+      where: {
+        status: {
+          notIn: excludedStatuses // 承認待ち・却下済みを除外
+        }
+      },
       select: {
         id: true,
         orderNumber: true,
         totalAmount: true,
         status: true,
+        approvalStatus: true, // ✅ 承認状態を追加
+        requiresApproval: true, // ✅ 承認要否フラグを追加
         createdAt: true,
         userId: true,
         deliveryName: true,

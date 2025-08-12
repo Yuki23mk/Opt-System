@@ -1,6 +1,6 @@
 /**
  * ファイルパス: optioil-admin/app/orders/page.tsx
- * 管理者画面 - 受注管理ページ（一括更新機能付き完全版）
+ * 管理者画面 - 受注管理ページ（承認フロー対応修正版）
  */
 
 "use client";
@@ -45,6 +45,24 @@ interface Order {
   deliveryPhone?: string;
   cancelReason?: string;
   cancelRejectReason?: string;
+  requiresApproval?: boolean;
+  approvalStatus?: string; // pending/approved/rejected
+  approval?: {
+    id: number;
+    status: string;
+    requestedAt: string;
+    approvedAt?: string;
+    rejectedAt?: string;
+    rejectionReason?: string;
+    requester: {
+      id: number;
+      name: string;
+    };
+    approver?: {
+      id: number;
+      name: string;
+    };
+  };
   user: {
     id: number;
     name: string;
@@ -82,6 +100,15 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
   cancel_requested: { label: 'キャンセル申請中', color: 'bg-orange-100 text-orange-800' },
   cancel_rejected: { label: 'キャンセル拒否', color: 'bg-red-100 text-red-800' }
+};
+
+// ステータス表示用の関数
+const getDisplayStatus = (order: Order) => {
+  // 承認フローがある注文で承認済みの場合、管理者画面では「注文受付」として表示
+  if (order.requiresApproval && order.approvalStatus === 'approved') {
+    return 'pending'; // statusLabelsでは'pending'が「注文受付」に対応
+  }
+  return order.status;
 };
 
 function AdminOrderManagementPage() {
@@ -537,8 +564,13 @@ const fetchOrders = useCallback(async () => {
   };
 
   const filteredOrders = orders.filter(order => {
-    // ステータスフィルタ
-    const statusMatch = statusFilter === "all" || order.status === statusFilter;
+    // ユーザー内部の承認フローが回っている注文は表示しない（承認待ち・却下済み）
+    if (order.requiresApproval && (order.approvalStatus === 'pending' || order.approvalStatus === 'rejected')) {
+      return false;
+    }
+    
+    // ステータスフィルタ - 表示用ステータスでフィルタリング
+    const statusMatch = statusFilter === "all" || getDisplayStatus(order) === statusFilter;
     
     // 検索キーワードフィルタ
     const keywordMatch = !searchKeyword || 
@@ -607,11 +639,11 @@ const fetchOrders = useCallback(async () => {
               className="border rounded-lg px-3 py-2"
             >
               <option value="all">すべて ({orders.length})</option>
-              <option value="pending">注文受付 ({orders.filter(o => o.status === 'pending').length})</option>
-              <option value="confirmed">注文確定 ({orders.filter(o => o.status === 'confirmed').length})</option>
-              <option value="processing">商品手配中 ({orders.filter(o => o.status === 'processing').length})</option>
-              <option value="shipped">発送済み ({orders.filter(o => o.status === 'shipped').length})</option>
-              <option value="delivered">配送完了 ({orders.filter(o => o.status === 'delivered').length})</option>
+              <option value="pending">注文受付 ({orders.filter(o => getDisplayStatus(o) === 'pending').length})</option>
+              <option value="confirmed">注文確定 ({orders.filter(o => getDisplayStatus(o) === 'confirmed').length})</option>
+              <option value="processing">商品手配中 ({orders.filter(o => getDisplayStatus(o) === 'processing').length})</option>
+              <option value="shipped">発送済み ({orders.filter(o => getDisplayStatus(o) === 'shipped').length})</option>
+              <option value="delivered">配送完了 ({orders.filter(o => getDisplayStatus(o) === 'delivered').length})</option>
               <option value="cancel_requested">キャンセル申請中 ({pendingCancelCount})</option>
               <option value="cancelled">キャンセル ({orders.filter(o => o.status === 'cancelled').length})</option>
               <option value="cancel_rejected">キャンセル拒否 ({orders.filter(o => o.status === 'cancel_rejected').length})</option>
@@ -704,9 +736,15 @@ const fetchOrders = useCallback(async () => {
                   <div>
                     <div className="flex items-center gap-2 text-lg font-semibold">
                       {order.orderNumber}
-                      <span className={`px-2 py-1 rounded text-sm ${statusLabels[order.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                        {statusLabels[order.status]?.label || order.status}
+                      <span className={`px-2 py-1 rounded text-sm ${statusLabels[getDisplayStatus(order)]?.color || 'bg-gray-100 text-gray-800'}`}>
+                        {statusLabels[getDisplayStatus(order)]?.label || order.status}
                       </span>
+                      {/* 承認済みは小さなピンバッジ風に表示 */}
+                      {order.requiresApproval && order.approvalStatus === 'approved' && (
+                        <span className="inline-flex items-center justify-center w-5 h-5 bg-green-500 text-white rounded-full text-xs font-bold" title="社内承認済み">
+                          ✓
+                        </span>
+                      )}                      
                       {order.status === 'cancel_requested' && (
                         <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-sm animate-pulse">
                           要対応
@@ -784,9 +822,9 @@ const fetchOrders = useCallback(async () => {
                     </>
                   )}
                   
-                  {['pending', 'confirmed', 'processing', 'shipped'].includes(order.status) && (
+                  {['pending', 'confirmed', 'processing', 'shipped'].includes(getDisplayStatus(order)) && (
                     <select
-                      value={order.status}
+                      value={getDisplayStatus(order)}
                       onChange={(e) => updateOrderStatus(order.id, e.target.value)}
                       className="border rounded text-sm px-2 py-1"
                     >
@@ -969,11 +1007,17 @@ const fetchOrders = useCallback(async () => {
                       <div>会社: {selectedOrder.user.company.name}</div>
                       <div className="flex items-center gap-2">
                         ステータス: 
-                        <span className={`px-2 py-1 rounded text-xs ${statusLabels[selectedOrder.status]?.color || 'bg-gray-100 text-gray-800'}`}>
-                          {statusLabels[selectedOrder.status]?.label || selectedOrder.status}
+                        <span className={`px-2 py-1 rounded text-xs ${statusLabels[getDisplayStatus(selectedOrder)]?.color || 'bg-gray-100 text-gray-800'}`}>
+                          {statusLabels[getDisplayStatus(selectedOrder)]?.label || selectedOrder.status}
                         </span>
-                      </div>
-                      {selectedOrder.cancelReason && (
+                        {/* 承認済みアイコン */}
+                        {selectedOrder.requiresApproval && selectedOrder.approvalStatus === 'approved' && (
+                          <span className="inline-flex items-center justify-center w-4 h-4 bg-green-500 text-white rounded-full text-xs font-bold ml-1" title="社内承認済み">
+                            ✓
+                          </span>
+                        )}
+                      </div>                    
+                        {selectedOrder.cancelReason && (
                         <div className="mt-2 p-3 bg-orange-50 rounded border border-orange-200">
                           <div className="flex items-center gap-2 mb-2">
                             <AlertTriangle className="h-4 w-4 text-orange-600" />
@@ -992,6 +1036,34 @@ const fetchOrders = useCallback(async () => {
                           </div>
                           <div className="text-red-700 text-sm leading-relaxed">
                             {selectedOrder.cancelRejectReason}
+                          </div>
+                        </div>
+                      )}
+                      {/* 承認フロー情報の表示 */}
+                      {selectedOrder.requiresApproval && selectedOrder.approval && (
+                        <div className="mt-2 p-3 bg-blue-50 rounded border border-blue-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <CheckCircle className="h-4 w-4 text-blue-600" />
+                            <span className="font-medium text-blue-800">承認フロー情報:</span>
+                          </div>
+                          <div className="text-blue-700 text-sm space-y-1">
+                            <div>申請者: {selectedOrder.approval.requester.name}</div>
+                            <div>申請日時: {new Date(selectedOrder.approval.requestedAt).toLocaleString('ja-JP')}</div>
+                            {selectedOrder.approval.approvedAt && selectedOrder.approval.approver && (
+                              <>
+                                <div>承認者: {selectedOrder.approval.approver.name}</div>
+                                <div>承認日時: {new Date(selectedOrder.approval.approvedAt).toLocaleString('ja-JP')}</div>
+                              </>
+                            )}
+                            {selectedOrder.approval.rejectedAt && selectedOrder.approval.approver && (
+                              <>
+                                <div>却下者: {selectedOrder.approval.approver.name}</div>
+                                <div>却下日時: {new Date(selectedOrder.approval.rejectedAt).toLocaleString('ja-JP')}</div>
+                                {selectedOrder.approval.rejectionReason && (
+                                  <div>却下理由: {selectedOrder.approval.rejectionReason}</div>
+                                )}
+                              </>
+                            )}
                           </div>
                         </div>
                       )}

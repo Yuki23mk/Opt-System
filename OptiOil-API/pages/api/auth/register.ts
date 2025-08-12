@@ -1,6 +1,6 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/auth/register.ts
- * ユーザー登録API（Opt.システム対応版）
+ * ユーザー登録API（サブアカウント作成）
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';

@@ -8,3 +8,9 @@ OptiOil-API/pages/api/
 
 auth/: 認証・自分の情報取得
 users/: ユーザー情報の変更・管理
+
+
+■API用途特徴
+/api/auth/me (me_get.ts)プロフィール取得／権限データ付き
+/api/users/me (me.ts)プロフィール取得・更新／会社社名付き・会社名編集可能
+/api/users/me_putプロフィール更新／個人情報のみ更新
