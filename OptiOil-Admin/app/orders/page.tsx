@@ -586,8 +586,8 @@ const fetchOrders = useCallback(async () => {
     }
     
     // ステータスフィルタ - 表示用ステータスでフィルタリング
-      const displayStatus = getDisplayStatus(order);
-    const statusMatch = statusFilter === "all" || getDisplayStatus(order) === statusFilter;
+    const displayStatus = getDisplayStatus(order);
+    const statusMatch = statusFilter === "all" || displayStatus === statusFilter;
     
     // 検索キーワードフィルタ
     const keywordMatch = !searchKeyword || 
