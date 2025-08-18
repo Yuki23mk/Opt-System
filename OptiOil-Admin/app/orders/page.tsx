@@ -144,12 +144,6 @@ function AdminOrderManagementPage() {
 
   const API_URL = ENV.API_URL;
 
-  console.log('🔧 管理者FE環境設定:', {
-    API_URL,
-    ADMIN_URL: process.env.NEXT_PUBLIC_ADMIN_URL,
-    NODE_ENV: process.env.NODE_ENV
-  });
-
 const fetchOrders = useCallback(async () => {
   try {
     setIsLoading(true);
@@ -157,12 +151,6 @@ const fetchOrders = useCallback(async () => {
     const apiUrl = ENV.API_URL;
     const token = localStorage.getItem("adminToken");
     
-    console.log('🔧 管理者画面Request:', {
-      apiUrl,
-      fullUrl: `${apiUrl}/api/admin/orders`,
-      hasToken: !!token,
-      origin: typeof window !== 'undefined' ? window.location.origin : 'server-side'
-    });
     
     if (!token) {
       console.error('❌ 管理者トークンがありません');
@@ -601,17 +589,6 @@ const fetchOrders = useCallback(async () => {
       const displayStatus = getDisplayStatus(order);
     const statusMatch = statusFilter === "all" || getDisplayStatus(order) === statusFilter;
     
-      // 🔧 デバッグ用ログ追加（一部納品済みの場合のみ）
-  if (order.status === 'partially_delivered') {
-    console.log('🔍 一部納品済みフィルタリング:', {
-      orderNumber: order.orderNumber,
-      originalStatus: order.status,
-      displayStatus: displayStatus,
-      statusFilter: statusFilter,
-      statusMatch: statusMatch
-    });
-  }
-
     // 検索キーワードフィルタ
     const keywordMatch = !searchKeyword || 
       order.orderNumber.toLowerCase().includes(searchKeyword.toLowerCase()) ||
@@ -623,25 +600,10 @@ const fetchOrders = useCallback(async () => {
     return statusMatch && keywordMatch;
   });
 
-  // カウント部分の修正（デバッグログ追加）
-const partiallyDeliveredCount = orders.filter(o => {
-  const count = o.status === 'partially_delivered';
-  if (count) {
-    console.log('🔍 一部納品済みカウント対象:', {
-      orderNumber: o.orderNumber,
-      status: o.status
-    });
-  }
-  return count;
-}).length;
-
-console.log('📊 一部納品済みカウント結果:', partiallyDeliveredCount);
-
-
   const pendingCancelCount = orders.filter(order => order.status === 'cancel_requested').length;
 
   // 🆕 一部納品済みのデータ件数をチェック
-  //const partiallyDeliveredCount = orders.filter(o => o.status === 'partially_delivered').length;
+  const partiallyDeliveredCount = orders.filter(o => o.status === 'partially_delivered').length;
 
   if (isLoading) {
     return (
