@@ -1,11 +1,11 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/admin/orders/bulk-status.ts
- * 管理者用 - 注文ステータス一括更新API
+ * 管理者用 - 注文ステータス一括更新API（修正版）
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { runMiddleware } from '../../../../lib/cors'; // 🔧 既存のCORSライブラリを使用
+import { runMiddleware } from '../../../../lib/cors';
 import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
@@ -72,10 +72,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'ステータスが必要です' });
     }
 
-    // 有効なステータスかチェック
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    // ✅ 修正: 有効なステータスリストを拡張（正しい順序で）
+    const validStatuses = [
+      'pending',           // 注文受付
+      'confirmed',         // 注文確定
+      'processing',        // 商品手配中
+      'shipped',           // 発送済み
+      'partially_delivered', // 一部納品済み(分納の場合) ← 追加
+      'delivered',         // 配送完了
+      'cancel_requested',  // キャンセル申請中 ← 追加
+      'cancelled',         // キャンセル
+      'cancel_rejected'    // キャンセル拒否 ← 追加
+    ];
+
     if (!validStatuses.includes(newStatus)) {
-      return res.status(400).json({ error: '無効なステータスです' });
+      console.error('❌ 無効なステータス:', newStatus, '有効なステータス:', validStatuses);
+      return res.status(400).json({ 
+        error: '無効なステータスです', 
+        validStatuses: validStatuses,
+        receivedStatus: newStatus
+      });
     }
 
     // orderIds を数値配列に変換

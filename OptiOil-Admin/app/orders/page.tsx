@@ -1,6 +1,6 @@
 /**
  * ファイルパス: optioil-admin/app/orders/page.tsx
- * 管理者画面 - 受注管理ページ（承認フロー対応修正版）
+ * 管理者画面 - 受注管理ページ（一部納品済みステータス調整版）
  */
 
 "use client";
@@ -96,6 +96,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   confirmed: { label: '注文確定', color: 'bg-green-100 text-green-800' },
   processing: { label: '商品手配中', color: 'bg-yellow-100 text-yellow-800' },
   shipped: { label: '発送済み', color: 'bg-purple-100 text-purple-800' },
+  partially_delivered: { label: '💡 一部納品済み', color: 'bg-indigo-100 text-indigo-800' },
   delivered: { label: '配送完了', color: 'bg-gray-100 text-gray-800' },
   cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
   cancel_requested: { label: 'キャンセル申請中', color: 'bg-orange-100 text-orange-800' },
@@ -105,9 +106,13 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 // ステータス表示用の関数
 const getDisplayStatus = (order: Order) => {
   // 承認フローがある注文で承認済みの場合、管理者画面では「注文受付」として表示
-  if (order.requiresApproval && order.approvalStatus === 'approved') {
+  // ただし、元のステータスがpendingの場合のみ適用（他のステータスは変更しない）
+  if (order.requiresApproval && 
+      order.approvalStatus === 'approved' && 
+      order.status === 'pending') {  
     return 'pending'; // statusLabelsでは'pending'が「注文受付」に対応
   }
+  // その他のステータス（partially_delivered, shipped, delivered等）はそのまま返す
   return order.status;
 };
 
@@ -219,17 +224,18 @@ const fetchOrders = useCallback(async () => {
     fetchOrders();
   }, [fetchOrders]);
 
-  // フィルタ変更時に選択状態をリセット
+  // フィルター変更時に選択状態をリセット
   useEffect(() => {
     setSelectedOrderIds([]);
     
-    // フィルタに応じて次のステータスをデフォルト設定
+    // 🔧 修正: デフォルトフローを調整（一部納品済みをスキップ）
     const getNextStatus = (currentFilter: string) => {
       switch (currentFilter) {
         case 'pending': return 'confirmed';
         case 'confirmed': return 'processing';
         case 'processing': return 'shipped';
-        case 'shipped': return 'delivered';
+        case 'shipped': return 'delivered'; // 🆕 発送済み → 配送完了に直接
+        case 'partially_delivered': return 'delivered'; // 一部納品済み → 配送完了
         default: return 'confirmed';
       }
     };
@@ -245,6 +251,12 @@ const fetchOrders = useCallback(async () => {
         return;
       }
 
+      console.log('🔄 ステータス更新リクエスト:', {
+        orderId,
+        newStatus,
+        url: `${API_URL}/api/admin/orders/${orderId}/status`
+      });
+
       const response = await fetch(`${API_URL}/api/admin/orders/${orderId}/status`, {
         method: 'PUT',
         headers: {
@@ -255,15 +267,16 @@ const fetchOrders = useCallback(async () => {
       });
 
       if (response.ok) {
-        console.log('ステータスを更新しました');
+        console.log('✅ ステータス更新成功');
         toast.success(`ステータスを「${statusLabels[newStatus]?.label}」に更新しました`);
         await fetchOrders();
       } else {
-        console.error('ステータス更新に失敗しました');
-        toast.error('ステータス更新に失敗しました');
+        const errorData = await response.text();
+        console.error('❌ ステータス更新エラー:', response.status, errorData);
+        toast.error(`ステータス更新に失敗しました: ${response.status}`);
       }
     } catch (error) {
-      console.error('ステータス更新エラー:', error);
+      console.error('🚨 ステータス更新エラー:', error);
       toast.error('ステータス更新中にエラーが発生しました');
     }
   };
@@ -366,9 +379,23 @@ const fetchOrders = useCallback(async () => {
       return;
     }
 
+    // 🆕 一部納品済み選択時の注意メッセージ
+    if (bulkUpdateStatus === 'partially_delivered') {
+      const confirmMessage = '⚠️ 「一部納品済み」は分納の場合のステータスです。\n通常は「発送済み」→「配送完了」の流れをお勧めします。\n\n本当に「一部納品済み」に変更しますか？';
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+    }
+
     try {
       const token = localStorage.getItem("adminToken");
       if (!token) return;
+
+      console.log('🔄 一括更新リクエスト:', {
+        orderIds: selectedOrderIds,
+        newStatus: bulkUpdateStatus,
+        url: `${API_URL}/api/admin/orders/bulk-status`
+      });
 
       const response = await fetch(`${API_URL}/api/admin/orders/bulk-status`, {
         method: 'PUT',
@@ -384,17 +411,18 @@ const fetchOrders = useCallback(async () => {
 
       if (response.ok) {
         const result = await response.json();
-        console.log(`一括更新成功: ${result.updatedCount}件更新`);
+        console.log(`✅ 一括更新成功: ${result.updatedCount}件更新`);
         toast.success(`${result.updatedCount}件の注文ステータスを「${statusLabels[bulkUpdateStatus]?.label}」に更新しました`);
         setShowBulkUpdateModal(false);
         setSelectedOrderIds([]);
         await fetchOrders();
       } else {
         const errorData = await response.json();
+        console.error('❌ 一括更新エラー:', response.status, errorData);
         toast.error('一括更新に失敗しました: ' + errorData.error);
       }
     } catch (error) {
-      console.error('一括更新エラー:', error);
+      console.error('🚨 一括更新エラー:', error);
       toast.error('一括更新中にエラーが発生しました');
     }
   };
@@ -570,8 +598,20 @@ const fetchOrders = useCallback(async () => {
     }
     
     // ステータスフィルタ - 表示用ステータスでフィルタリング
+      const displayStatus = getDisplayStatus(order);
     const statusMatch = statusFilter === "all" || getDisplayStatus(order) === statusFilter;
     
+      // 🔧 デバッグ用ログ追加（一部納品済みの場合のみ）
+  if (order.status === 'partially_delivered') {
+    console.log('🔍 一部納品済みフィルタリング:', {
+      orderNumber: order.orderNumber,
+      originalStatus: order.status,
+      displayStatus: displayStatus,
+      statusFilter: statusFilter,
+      statusMatch: statusMatch
+    });
+  }
+
     // 検索キーワードフィルタ
     const keywordMatch = !searchKeyword || 
       order.orderNumber.toLowerCase().includes(searchKeyword.toLowerCase()) ||
@@ -583,7 +623,25 @@ const fetchOrders = useCallback(async () => {
     return statusMatch && keywordMatch;
   });
 
+  // カウント部分の修正（デバッグログ追加）
+const partiallyDeliveredCount = orders.filter(o => {
+  const count = o.status === 'partially_delivered';
+  if (count) {
+    console.log('🔍 一部納品済みカウント対象:', {
+      orderNumber: o.orderNumber,
+      status: o.status
+    });
+  }
+  return count;
+}).length;
+
+console.log('📊 一部納品済みカウント結果:', partiallyDeliveredCount);
+
+
   const pendingCancelCount = orders.filter(order => order.status === 'cancel_requested').length;
+
+  // 🆕 一部納品済みのデータ件数をチェック
+  //const partiallyDeliveredCount = orders.filter(o => o.status === 'partially_delivered').length;
 
   if (isLoading) {
     return (
@@ -643,6 +701,8 @@ const fetchOrders = useCallback(async () => {
               <option value="confirmed">注文確定 ({orders.filter(o => getDisplayStatus(o) === 'confirmed').length})</option>
               <option value="processing">商品手配中 ({orders.filter(o => getDisplayStatus(o) === 'processing').length})</option>
               <option value="shipped">発送済み ({orders.filter(o => getDisplayStatus(o) === 'shipped').length})</option>
+              {/* 🆕 一部納品済みを常時表示に変更 */}
+              <option value="partially_delivered">💡 一部納品済み ({partiallyDeliveredCount})</option>
               <option value="delivered">配送完了 ({orders.filter(o => getDisplayStatus(o) === 'delivered').length})</option>
               <option value="cancel_requested">キャンセル申請中 ({pendingCancelCount})</option>
               <option value="cancelled">キャンセル ({orders.filter(o => o.status === 'cancelled').length})</option>
@@ -695,7 +755,8 @@ const fetchOrders = useCallback(async () => {
                       <option value="confirmed">✅ 注文確定</option>
                       <option value="processing">⚙️ 商品手配中</option>
                       <option value="shipped">🚚 発送済み</option>
-                      <option value="delivered">📦 配送完了</option>
+                      <option value="partially_delivered">💡 一部納品済み (分納の場合)</option> {/* 🆕 ヒント表示 */}
+                      <option value="delivered">✔️ 配送完了</option>
                     </select>
                   </div>
                   <button
@@ -821,8 +882,8 @@ const fetchOrders = useCallback(async () => {
                       </button>
                     </>
                   )}
-                  
-                  {['pending', 'confirmed', 'processing', 'shipped'].includes(getDisplayStatus(order)) && (
+
+                  {['pending', 'confirmed', 'processing', 'shipped', 'partially_delivered'].includes(getDisplayStatus(order)) && (
                     <select
                       value={getDisplayStatus(order)}
                       onChange={(e) => updateOrderStatus(order.id, e.target.value)}
@@ -832,6 +893,7 @@ const fetchOrders = useCallback(async () => {
                       <option value="confirmed">注文確定</option>
                       <option value="processing">商品手配中</option>
                       <option value="shipped">発送済み</option>
+                      <option value="partially_delivered">💡 一部納品済み</option> {/* 🆕 ヒント表示 */}
                       <option value="delivered">配送完了</option>
                     </select>
                   )}
@@ -946,7 +1008,8 @@ const fetchOrders = useCallback(async () => {
                   <option value="confirmed">✅ 注文確定</option>
                   <option value="processing">⚙️ 商品手配中</option>
                   <option value="shipped">🚚 発送済み</option>
-                  <option value="delivered">📦 配送完了</option>
+                  <option value="partially_delivered">💡 一部納品済み (分納の場合)</option> {/* 🆕 ヒント表示 */}
+                  <option value="delivered">✔️ 配送完了</option>
                 </select>
               </div>
             </div>

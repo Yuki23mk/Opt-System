@@ -31,7 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { toast } from 'sonner';
 import { 
   ArrowLeft, Search, Plus, Save, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle,
-  Calendar as CalendarIcon, Clock, CalendarClock, Edit, Trash2, RefreshCw,
+  Calendar as CalendarIcon, Clock, CalendarClock, Edit, Trash2, RefreshCw, History,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -77,6 +77,15 @@ interface ApiError {
   message: string;
 }
 
+interface PriceHistoryData {
+  data: PriceSchedule[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
 export default function CompanyProductsPage() {
   const router = useRouter();
   const params = useParams();
@@ -98,14 +107,20 @@ export default function CompanyProductsPage() {
   const [editingSchedule, setEditingSchedule] = useState<PriceSchedule | null>(null);
   const [scheduleExpiryDate, setScheduleExpiryDate] = useState<Date | undefined>(undefined);
 
+  // 価格履歴表示用state
+  const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
+  const [selectedProductForHistory, setSelectedProductForHistory] = useState<ProductMaster | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyLimit] = useState(10); // 1ページ10件
+
+
   // 認証チェック
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (!token) {
       router.push('/login');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // routerを依存配列から除外してESLintルールを無効化
+  }, [router]);
 
   // 会社情報取得
   const { data: company } = useQuery({
@@ -156,7 +171,7 @@ export default function CompanyProductsPage() {
       const expiryDate = new Date(p.companyProduct.quotationExpiryDate);
       if (expiryDate > oneMonthFromNow) return false;
       
-      // スケジュール設定がある場合は警告対象外
+      // スケジュール設定があるかチェック
       const productSchedules = priceSchedules?.[p.companyProduct.id] || [];
       const hasValidSchedule = productSchedules.some(schedule => {
         const scheduleDate = new Date(schedule.effectiveDate);
@@ -180,6 +195,34 @@ export default function CompanyProductsPage() {
       !p.companyProduct?.quotationExpiryDate
     ).length;
   }, [companyProducts]);
+
+  // 価格履歴取得（ページネーション対応）
+  const getAppliedPriceHistory = useCallback((companyProductId: number, page: number = 1, limit: number = 10): PriceHistoryData => {
+    const productSchedules = priceSchedules?.[companyProductId] || [];
+    const sortedHistory = productSchedules
+      .filter(schedule => schedule.isApplied)
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+    
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    
+    return {
+      data: sortedHistory.slice(startIndex, endIndex),
+      total: sortedHistory.length,
+      totalPages: Math.ceil(sortedHistory.length / limit),
+      currentPage: page,
+      hasNextPage: page < Math.ceil(sortedHistory.length / limit),
+      hasPrevPage: page > 1
+    };
+  }, [priceSchedules]);
+
+  // 一覧表示用のシンプルな関数（既存の表示で使用）
+  const getAppliedPriceHistorySimple = useCallback((companyProductId: number): PriceSchedule[] => {
+    const productSchedules = priceSchedules?.[companyProductId] || [];
+    return productSchedules
+      .filter(schedule => schedule.isApplied)
+      .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+  }, [priceSchedules]);
 
   // メモ化：利用可能な商品（検索フィルタリング付き）
   const availableProducts = useMemo(() => {
@@ -396,6 +439,15 @@ export default function CompanyProductsPage() {
     return expiryDate <= oneMonthFromNow && expiryDate >= new Date();
   }, []);
 
+  // ステータス判定関数
+  const getProductStatus = useCallback((quotationExpiryDate: string | null) => {
+    if (!quotationExpiryDate) return 'normal'; // 期限未設定は正常
+    
+    if (isExpired(quotationExpiryDate)) return 'expired';
+    if (isExpiringSoon(quotationExpiryDate)) return 'expiring';
+    return 'normal';
+  }, [isExpired, isExpiringSoon]);
+
   // イベントハンドラー
   const handlePriceBlur = useCallback((companyProductId: number, originalPrice: number | null) => {
     const tempPrice = tempPrices[companyProductId];
@@ -451,6 +503,13 @@ export default function CompanyProductsPage() {
       setScheduleExpiryDate(undefined);
     }
     setScheduleDialogOpen(true);
+  }, []);
+
+  // 価格履歴ダイアログを開く
+  const handleOpenPriceHistoryDialog = useCallback((product: ProductMaster) => {
+    setSelectedProductForHistory(product);
+      setHistoryPage(1); // ページをリセット
+    setPriceHistoryDialogOpen(true);
   }, []);
 
   const handleCreateOrUpdateSchedule = useCallback(() => {
@@ -573,6 +632,12 @@ export default function CompanyProductsPage() {
     setSelectedProducts(new Set());
     setAddSearchTerm('');
     setIsAddDialogOpen(true);
+  }, []);
+
+  // 価格履歴ダイアログを閉じる
+  const handleClosePriceHistoryDialog = useCallback(() => {
+    setPriceHistoryDialogOpen(false);
+    setSelectedProductForHistory(null);
   }, []);
 
   if (isLoadingProducts && !allProducts) {
@@ -926,55 +991,65 @@ export default function CompanyProductsPage() {
                             </Popover>
                           </TableCell>
 
-                          {/* スケジュール価格 - 終了日必須に変更 */}
+                          {/* スケジュール価格表示 - 適用済みは非表示、未適用のみ表示 */}
                           <TableCell>
                             <div className="space-y-1">
                               {productSchedules.length > 0 ? (
                                 <div className="space-y-1">
+                                  {/* 価格履歴ボタン */}
+                                  {getAppliedPriceHistorySimple(companyProductId!).length > 0 && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-6 text-blue-600"
+                                      onClick={() => handleOpenPriceHistoryDialog(product)}
+                                    >
+                                      <History className="w-3 h-3 mr-1" />
+                                      履歴
+                                    </Button>
+                                  )}
+                                  
+                                  {/* 未適用のスケジュールのみ表示 */}
                                   {productSchedules
                                     .filter((schedule) => {
-                                      // 期限切れのスケジュールを除外
-                                      const now = new Date();
+                                      // 適用済みは非表示
+                                      if (schedule.isApplied) return false;
                                       
-                                      // expiryDateがnullの場合はフィルタリング
+                                      // 終了日チェック
                                       if (!schedule.expiryDate) return false;
                                       
+                                      const now = new Date();
                                       const expiryDate = new Date(schedule.expiryDate);
-                                      
-                                      // 適用済みは表示
-                                      if (schedule.isApplied) return true;
                                       
                                       // 期限切れでないもののみ表示
                                       return expiryDate >= now;
                                     })
                                     .map((schedule) => (
                                     <div key={schedule.id} className="flex items-center space-x-1">
-                                      <Badge variant={schedule.isApplied ? "default" : "secondary"} className="text-xs">
+                                      <Badge variant="secondary" className="text-xs">
                                         ¥{schedule.scheduledPrice.toLocaleString()} 
                                         ({format(new Date(schedule.effectiveDate), "MM/dd", { locale: ja })} - {
                                           schedule.expiryDate ? format(new Date(schedule.expiryDate), "MM/dd", { locale: ja }) : "未設定"
                                         })
                                       </Badge>
-                                      {!schedule.isApplied && (
-                                        <div className="flex space-x-1">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-5 w-5 p-0"
-                                            onClick={() => handleOpenScheduleDialog(product, schedule)}
-                                          >
-                                            <Edit className="w-3 h-3" />
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-5 w-5 p-0 text-red-500"
-                                            onClick={() => handleDeleteSchedule(schedule.id)}
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </Button>
-                                        </div>
-                                      )}
+                                      <div className="flex space-x-1">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 w-5 p-0"
+                                          onClick={() => handleOpenScheduleDialog(product, schedule)}
+                                        >
+                                          <Edit className="w-3 h-3" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-5 w-5 p-0 text-red-500"
+                                          onClick={() => handleDeleteSchedule(schedule.id)}
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
+                                      </div>
                                     </div>
                                   ))}
                                   <Button
@@ -988,36 +1063,63 @@ export default function CompanyProductsPage() {
                                   </Button>
                                 </div>
                               ) : (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-xs h-6"
-                                  onClick={() => handleOpenScheduleDialog(product)}
-                                >
-                                  <CalendarClock className="w-3 h-3 mr-1" />
-                                  設定
-                                </Button>
+                                <div className="space-y-1">
+                                  {/* 価格履歴ボタン */}
+                                  {getAppliedPriceHistorySimple(companyProductId!).length > 0 && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-6 text-blue-600"
+                                      onClick={() => handleOpenPriceHistoryDialog(product)}
+                                    >
+                                      <History className="w-3 h-3 mr-1" />
+                                      履歴
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-xs h-6"
+                                    onClick={() => handleOpenScheduleDialog(product)}
+                                  >
+                                    <CalendarClock className="w-3 h-3 mr-1" />
+                                    設定
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           </TableCell>
 
                           <TableCell>
                             <div className="space-y-1">
-                              <Badge variant={product.active ? "default" : "secondary"}>
-                                {product.active ? "有効" : "無効"}
-                              </Badge>
-                              {isQuotationExpired && (
-                                <Badge variant="destructive" className="text-xs">
-                                  期限切れ
-                                </Badge>
-                              )}
-                              {isQuotationExpiringSoon && !isQuotationExpired && (
-                                <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">
-                                  期限間近
-                                </Badge>
-                              )}
+                              {(() => {
+                                const status = getProductStatus(product.companyProduct?.quotationExpiryDate || null);
+                                
+                                switch (status) {
+                                  case 'expired':
+                                    return (
+                                      <Badge variant="destructive" className="text-xs">
+                                        期限切れ
+                                      </Badge>
+                                    );
+                                  case 'expiring':
+                                    return (
+                                      <Badge variant="outline" className="text-xs border-orange-300 text-orange-600">
+                                        期限間近
+                                      </Badge>
+                                    );
+                                  case 'normal':
+                                  default:
+                                    return (
+                                      <Badge variant="default" className="text-xs">
+                                        正常
+                                      </Badge>
+                                    );
+                                }
+                              })()}
                             </div>
                           </TableCell>
+
                           <TableCell className="text-center">
                             <Button
                               variant="outline"
@@ -1091,7 +1193,7 @@ export default function CompanyProductsPage() {
               </Popover>
             </div>
 
-            {/* 終了日選択フィールド - 🆕 必須に変更 */}
+            {/* 終了日選択フィールド - 必須に変更 */}
             <div className="space-y-2">
               <label className="text-sm font-medium">適用終了日 <span className="text-red-500">*</span></label>
               <Popover>
@@ -1135,6 +1237,141 @@ export default function CompanyProductsPage() {
               disabled={!schedulePrice || !scheduleDate || !scheduleExpiryDate || createScheduleMutation.isPending}
             >
               {createScheduleMutation.isPending ? '処理中...' : editingSchedule ? 'スケジュール更新' : 'スケジュール設定'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 価格履歴表示ダイアログ */}
+      <Dialog open={priceHistoryDialogOpen} onOpenChange={setPriceHistoryDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>価格履歴</DialogTitle>
+            <DialogDescription>
+              {selectedProductForHistory?.name} の過去の価格変更履歴
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto">
+            {selectedProductForHistory?.companyProduct && (
+              <div className="space-y-4">
+                {/* 現在価格 */}
+                <div className="border-b pb-4">
+                  <h3 className="font-medium text-sm text-muted-foreground mb-2">現在価格</h3>
+                  <div className="flex items-center space-x-2">
+                    <Badge variant="default" className="text-sm">
+                      現在: ¥{selectedProductForHistory.companyProduct.price?.toLocaleString() || '未設定'}
+                    </Badge>
+                    {selectedProductForHistory.companyProduct.quotationExpiryDate && (
+                      <span className="text-xs text-muted-foreground">
+                        (見積期限: {format(new Date(selectedProductForHistory.companyProduct.quotationExpiryDate), "yyyy/MM/dd", { locale: ja })})
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 適用済み履歴 */}
+                <div>
+                  <h3 className="font-medium text-sm text-muted-foreground mb-2">適用済み価格履歴</h3>
+                  {(() => {
+                    const historyData = getAppliedPriceHistory(selectedProductForHistory.companyProduct.id, historyPage, historyLimit);
+                    
+                    if (historyData.total === 0) {
+                      return (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          価格変更履歴がありません
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {/* 履歴アイテム */}
+                        <div className="space-y-2">
+                          {historyData.data.map((schedule, index) => (
+                            <div key={schedule.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
+                              <div className="flex items-center space-x-3">
+                                <Badge variant="outline" className="text-xs">
+                                  #{historyData.total - ((historyData.currentPage - 1) * historyLimit) - index}
+                                </Badge>
+                                <div>
+                                  <div className="font-medium">¥{schedule.scheduledPrice.toLocaleString()}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    適用期間: {format(new Date(schedule.effectiveDate), "yyyy/MM/dd", { locale: ja })} 
+                                    {schedule.expiryDate && ` - ${format(new Date(schedule.expiryDate), "yyyy/MM/dd", { locale: ja })}`}
+                                  </div>
+                                </div>
+                              </div>
+                              <Badge variant="secondary" className="text-xs">
+                                適用済み
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* ページネーション */}
+                        {historyData.totalPages > 1 && (
+                          <div className="flex items-center justify-between pt-4 border-t">
+                            <div className="text-xs text-muted-foreground">
+                              全{historyData.total}件中 {((historyData.currentPage - 1) * historyLimit) + 1} - {Math.min(historyData.currentPage * historyLimit, historyData.total)}件を表示
+                            </div>
+                            <div className="flex space-x-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setHistoryPage(prev => Math.max(1, prev - 1))}
+                                disabled={!historyData.hasPrevPage}
+                              >
+                                前へ
+                              </Button>
+                              <div className="flex items-center space-x-1">
+                                {Array.from({ length: historyData.totalPages }, (_, i) => i + 1)
+                                  .filter(page => 
+                                    page === 1 || 
+                                    page === historyData.totalPages || 
+                                    Math.abs(page - historyData.currentPage) <= 1
+                                  )
+                                  .map((page, index, filteredPages) => (
+                                    <div key={page} className="flex items-center">
+                                      {index > 0 && filteredPages[index - 1] !== page - 1 && (
+                                        <span className="px-1 text-xs text-muted-foreground">...</span>
+                                      )}
+                                      <Button
+                                        variant={page === historyData.currentPage ? "default" : "outline"}
+                                        size="sm"
+                                        className="w-8 h-8 p-0 text-xs"
+                                        onClick={() => setHistoryPage(page)}
+                                      >
+                                        {page}
+                                      </Button>
+                                    </div>
+                                  ))}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setHistoryPage(prev => Math.min(historyData.totalPages, prev + 1))}
+                                disabled={!historyData.hasNextPage}
+                              >
+                                次へ
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end pt-4 border-t flex-shrink-0">
+            <Button
+              variant="outline"
+              onClick={handleClosePriceHistoryDialog}
+            >
+              閉じる
             </Button>
           </div>
         </DialogContent>

@@ -1,11 +1,11 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/admin/orders/index.ts
- * 管理者用 - 全受注データ取得API（スキーマ対応修正版）
+ * 管理者用 - 全受注データ取得API（ステータス整合性修正版）
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { runMiddleware } from '../../../../lib/cors'; // 🔧 既存のCORSライブラリを使用
+import { runMiddleware } from '../../../../lib/cors';
 import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
@@ -69,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       
     } catch (error) {
-      console.error('❌ 管理者トークン検証失敗:', getErrorMessage(error)); // 🔧 修正箇所
+      console.error('❌ 管理者トークン検証失敗:', getErrorMessage(error));
 
       if (error instanceof Error) { // 🔧 型安全なアクセス
         if (error.name === 'JsonWebTokenError') {
@@ -84,14 +84,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 全受注データ取得 - cancelRejectReasonを含める + 承認待ち・却下済みを除外
     console.log('📋 受注データ取得開始...');
 
-    // ✅ ユーザFEで承認フローの回っている注文（pending_approval、rejected）は管理者画面に表示しない
-    const excludedStatuses = ['pending_approval', 'rejected'];
+    // ✅ 修正: 承認待ち・却下済みを除外（拡張ステータス対応）
+    const excludedStatuses = [
+      'pending_approval',   // 承認待ち  
+      'rejected'            // 却下済み
+    ];
 
     // まず基本的な注文データのみ取得（承認中除外・cancelRejectReasonを追加）
     const basicOrders = await prisma.order.findMany({
       where: {
         status: {
-          notIn: excludedStatuses // 承認待ち・却下済みを除外
+          notIn: excludedStatuses
         }
       },
       select: {
@@ -99,8 +102,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         orderNumber: true,
         totalAmount: true,
         status: true,
-        approvalStatus: true, // ✅ 承認状態を追加
-        requiresApproval: true, // ✅ 承認要否フラグを追加
+        approvalStatus: true,
+        requiresApproval: true,
         createdAt: true,
         userId: true,
         deliveryName: true,
@@ -112,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         deliveryZipCode: true,
         deliveryPhone: true,
         cancelReason: true,
-        cancelRejectReason: true // これを追加
+        cancelRejectReason: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -148,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             });
           }
 
-          // 注文商品取得 - ★★★ スキーマに合わせて修正
+          // 注文商品取得
           const orderItems = await prisma.orderItem.findMany({
             where: { orderId: order.id },
             include: {
@@ -170,7 +173,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           });
 
-          // ★★★ フロントエンド互換性のため、productフィールドに変換
+          // フロントエンド互換性のため、productフィールドに変換
           const transformedOrderItems = orderItems.map(item => ({
             ...item,
             product: item.companyProduct.productMaster
@@ -211,7 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('❌ 管理者受注データ取得API エラー:', error);
     return res.status(500).json({ 
       error: 'サーバーエラーが発生しました',
-      details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined // 🔧 型安全なエラーハンドリング
+      details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined
     });
   } finally {
     await prisma.$disconnect();

@@ -123,6 +123,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   confirmed: { label: '注文確定', color: 'bg-[#115e59] text-white' }, // 管理者が手動で確定した場合
   processing: { label: '商品手配中', color: 'bg-amber-500 text-white' },
   shipped: { label: '配送中', color: 'bg-purple-500 text-white' },
+  partially_delivered: { label: '一部配送済み', color: 'bg-orange-500 text-white' },
   delivered: { label: '配送完了', color: 'bg-slate-500 text-white' },
   cancelled: { label: 'キャンセル', color: 'bg-red-500 text-white' },
   cancel_requested: { label: 'キャンセル申請中', color: 'bg-amber-500 text-white' },

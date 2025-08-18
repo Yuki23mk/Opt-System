@@ -1,14 +1,25 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/admin/orders/[id]/status.ts
- * 管理者用 - 注文ステータス更新API
+ * 管理者用 - 注文ステータス更新API（修正版）
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
-import { runMiddleware } from '../../../../../lib/cors'; // 🔧 追加
+import { runMiddleware } from '../../../../../lib/cors';
 import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
+
+// 🆕 エラーメッセージを安全に取得するヘルパー関数
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'Unknown error occurred';
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -58,10 +69,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const orderId = Number(id);
 
-    // 有効なステータスかチェック
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    // ✅ 修正: 有効なステータスリストを拡張（bulk-status.tsと同じ定義）
+    const validStatuses = [
+      'pending',              // 注文受付
+      'confirmed',            // 注文確定
+      'processing',           // 商品手配中
+      'shipped',              // 発送済み
+      'partially_delivered',  // 一部納品済み(分納の場合) ← 追加
+      'delivered',            // 配送完了
+      'cancel_requested',     // キャンセル申請中 ← 追加
+      'cancelled',            // キャンセル
+      'cancel_rejected'       // キャンセル拒否 ← 追加
+    ];
+
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: '無効なステータスです' });
+      console.error('❌ 無効なステータス:', status, '有効なステータス:', validStatuses);
+      return res.status(400).json({ 
+        error: '無効なステータスです',
+        validStatuses: validStatuses,
+        receivedStatus: status
+      });
     }
 
     // 注文存在チェック
@@ -90,7 +117,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   } catch (error) {
     console.error('❌ 管理者ステータス更新API エラー:', error);
-    return res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    return res.status(500).json({ 
+      error: 'サーバーエラーが発生しました',
+      details: process.env.NODE_ENV === 'development' ? getErrorMessage(error) : undefined
+    });
   } finally {
     await prisma.$disconnect();
   }
