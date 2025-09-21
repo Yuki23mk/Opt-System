@@ -27,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         capacity,
         unit,
         oilType,
+        packageType, // 🆕 荷姿フィールド追加
         internalTag,
       } = req.body;
 
@@ -39,6 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           capacity,
           unit,
           oilType,
+          packageType: packageType || null, // 🆕 荷姿フィールド対応（空文字列はnullに変換）
           internalTag: internalTag || null,
         },
       });

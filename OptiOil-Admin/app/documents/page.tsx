@@ -1,6 +1,11 @@
 /**
- * ファイルパス: optioil-admin/app/documents/page.tsx
- * 管理者画面 - 商品ドキュメント管理ページ（エンハンス版）
+ * ファイルパス: OptiOil-Admin/app/documents/page.tsx
+ * 管理者画面 - 商品ドキュメント管理ページ（デバッグ強化版）
+ * 
+ * 🔧 修正点:
+ * - packageType表示のデバッグ強化
+ * - APIレスポンスのログ出力追加
+ * - フォールバック表示の改善
  */
 
 "use client";
@@ -12,7 +17,7 @@ import { FileText, Upload, Trash2, Building, Package, ArrowLeft, Eye, Mail, Chec
 import { toast } from 'sonner';
 import { ENV } from '@/lib/env';
 
-// ★★★ 追加：削除確認モーダル用のhook
+// 削除確認モーダル用のhook
 const useConfirmModal = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [config, setConfig] = useState<{
@@ -122,15 +127,17 @@ const useConfirmModal = () => {
   return { openModal, closeModal, ConfirmModal };
 };
 
-interface ProductMaster {
+// 🔧 利用可能商品の型定義（デバッグ情報追加）
+interface AvailableProduct {
   id: number;
   code: string;
   name: string;
   manufacturer: string;
   capacity: string;
   unit: string;
+  packageType?: string | null; // 🔧 null も明示的に許可
   oilType: string;
-  active: boolean;
+  internalTag?: string;
 }
 
 interface Company {
@@ -171,25 +178,27 @@ interface ProductDocument {
 function AdminDocumentManagementPage() {
   const router = useRouter();
   const API_URL = ENV.API_URL;
-  const [productMasters, setProductMasters] = useState<ProductMaster[]>([]);
+  
+  const [availableProducts, setAvailableProducts] = useState<AvailableProduct[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [documents, setDocuments] = useState<ProductDocument[]>([]);
   const [selectedProductMasterId, setSelectedProductMasterId] = useState<number | null>(null);
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]); // ★★★ 修正：複数ファイル対応
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDeleting, setIsDeleting] = useState(false); // ★★★ 追加：削除中状態
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // ★★★ 追加：削除確認モーダル
+  // 削除確認モーダル
   const { openModal, closeModal, ConfirmModal } = useConfirmModal();
 
-  const fetchProductMasters = useCallback(async () => {
+  // 🔧 会社別利用可能商品取得（デバッグ強化版）
+  const fetchAvailableProducts = useCallback(async (companyId: number) => {
     try {
       const token = localStorage.getItem("adminToken");
       if (!token) return;
 
-      const response = await fetch(`${API_URL}/api/admin/product-masters`, {
+      const response = await fetch(`${API_URL}/api/admin/companies/${companyId}/available-products`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -198,11 +207,20 @@ function AdminDocumentManagementPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setProductMasters(data.filter((pm: ProductMaster) => pm.active));
+        
+        // 🔧 各商品のpackageType情報をログ出力
+        data.forEach((product: AvailableProduct, index: number) => {
+        });
+
+        setAvailableProducts(data);
+      } else {
+        const errorData = await response.json();
+        console.error('❌ 利用可能商品取得エラー:', errorData);
+        toast.error('利用可能商品の取得に失敗しました');
       }
     } catch (error) {
-      console.error('商品マスター取得エラー:', error);
-      toast.error('商品マスターの取得に失敗しました');
+      console.error('❌ 利用可能商品取得エラー:', error);
+      toast.error('利用可能商品の取得に失敗しました');
     }
   }, [API_URL]);
 
@@ -231,7 +249,7 @@ function AdminDocumentManagementPage() {
   }, [API_URL]);
 
   const fetchDocuments = useCallback(async () => {
-    if (!selectedProductMasterId) return;
+    if (!selectedProductMasterId || !selectedCompanyId) return;
 
     try {
       const token = localStorage.getItem("adminToken");
@@ -239,11 +257,8 @@ function AdminDocumentManagementPage() {
 
       const queryParams = new URLSearchParams({
         productMasterId: selectedProductMasterId.toString(),
+        companyId: selectedCompanyId.toString(),
       });
-
-      if (selectedCompanyId) {
-        queryParams.append('companyId', selectedCompanyId.toString());
-      }
 
       const response = await fetch(`${API_URL}/api/admin/product-documents?${queryParams}`, {
         headers: {
@@ -262,20 +277,35 @@ function AdminDocumentManagementPage() {
     }
   }, [selectedProductMasterId, selectedCompanyId, API_URL]);
 
+  // 初期データ取得（会社のみ）
   useEffect(() => {
-    fetchProductMasters();
     fetchCompanies();
-  }, [fetchProductMasters, fetchCompanies]);
+  }, [fetchCompanies]);
 
+  // 会社選択時の処理
   useEffect(() => {
-    if (selectedProductMasterId) {
+    if (selectedCompanyId) {
+      fetchAvailableProducts(selectedCompanyId);
+      // 商品選択をリセット
+      setSelectedProductMasterId(null);
+      setDocuments([]);
+    } else {
+      setAvailableProducts([]);
+      setSelectedProductMasterId(null);
+      setDocuments([]);
+    }
+  }, [selectedCompanyId, fetchAvailableProducts]);
+
+  // 商品・会社選択時のドキュメント取得
+  useEffect(() => {
+    if (selectedProductMasterId && selectedCompanyId) {
       fetchDocuments();
     } else {
       setDocuments([]);
     }
   }, [selectedProductMasterId, selectedCompanyId, fetchDocuments]);
 
-  // ★★★ 修正：累積ファイル選択
+  // ファイル選択処理（複数ファイル対応）
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newFiles = Array.from(e.target.files || []);
     setSelectedFiles(prev => {
@@ -288,7 +318,7 @@ function AdminDocumentManagementPage() {
     e.target.value = '';
   };
 
-  // ★★★ 追加：ファイル削除機能
+  // ファイル削除機能
   const removeFile = (index: number) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
@@ -307,7 +337,7 @@ function AdminDocumentManagementPage() {
 
       const formData = new FormData();
       
-      // ★★★ 修正：複数ファイルを追加
+      // 複数ファイルを追加
       selectedFiles.forEach(file => {
         formData.append('file', file);
       });
@@ -326,7 +356,6 @@ function AdminDocumentManagementPage() {
       if (response.ok) {
         const result = await response.json();
         
-        // ★★★ 追加：成功トースト
         toast.success(
           <div className="flex items-center gap-2">
             <CheckCircle className="h-4 w-4 text-green-600" />
@@ -376,7 +405,7 @@ function AdminDocumentManagementPage() {
       );
       return;
     }
-    // ★★★ 修正：モーダルでの削除確認
+
     openModal({
       title: 'ドキュメント削除確認',
       message: `「${filename}」を削除しますか？この操作は取り消せません。`,
@@ -388,14 +417,14 @@ function AdminDocumentManagementPage() {
           const token = localStorage.getItem("adminToken");
           if (!token) return;
 
-        // ★★★ 修正：クエリパラメータでIDを指定
-        const response = await fetch(`${API_URL}/api/admin/product-documents?id=${documentId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        //クエリパラメータでIDを指定
+          const response = await fetch(`${API_URL}/api/admin/product-documents?id=${documentId}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
 
           if (response.ok) {
             toast.success('ドキュメントを削除しました');
@@ -415,7 +444,7 @@ function AdminDocumentManagementPage() {
               );
             } else {
               toast.error('削除に失敗しました: ' + errorData.error);
-           }
+            }
             closeModal();
           }
         } catch (error) {
@@ -429,12 +458,36 @@ function AdminDocumentManagementPage() {
     });
   };
 
-  const selectedProductMaster = productMasters.find(pm => pm.id === selectedProductMasterId);
+  // 選択された商品・会社の情報取得
+  const selectedProduct = availableProducts.find(p => p.id === selectedProductMasterId);
   const selectedCompany = companies.find(c => c.id === selectedCompanyId);
 
-  // ★★★ 追加：ファイル選択状態の判定
+  // ファイル選択状態の判定
   const hasFilesSelected = selectedFiles.length > 0;
   const totalFileSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+
+  // 🔧 商品情報の表示用文字列生成（デバッグ強化版）
+  const getProductDisplayText = (product: AvailableProduct) => {
+   const parts = [
+      product.name,
+      `📦 ${product.capacity} ${product.unit}`,
+      product.packageType ? `🏷️ ${product.packageType}` : '🏷️ 荷姿未設定', // 🔧 フォールバック表示追加
+      `🏭 ${product.manufacturer}`,
+      `商品コード:${product.code}`
+    ];
+    const result = parts.join(' ／ ');
+    return result;
+  };
+
+  // プログレス表示用の商品情報生成（容量・単位・荷姿を含む）
+  const getProgressProductInfo = (product: AvailableProduct) => {
+    const parts = [
+      `${product.capacity} ${product.unit}`,
+      product.packageType ? product.packageType : '荷姿未設定' // 🔧 フォールバック表示追加
+    ];
+    
+    return parts.length > 0 ? ` (${parts.join(' ／ ')})` : '';
+  };
 
   if (isLoading) {
     return (
@@ -468,38 +521,73 @@ function AdminDocumentManagementPage() {
           <p className="text-gray-600">商品に関連する資料をアップロードし、会社単位でメール通知を送信します。</p>
         </div>
 
-        {/* 商品・会社選択エリア */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">📋 アップロード設定</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                商品選択
-              </label>
-              <select
-                value={selectedProductMasterId || ''}
-                onChange={(e) => setSelectedProductMasterId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">商品を選択してください</option>
-                {productMasters.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name} ({product.code})
-                  </option>
-                ))}
-              </select>
+        {/* プログレス表示 */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex items-center gap-6 mb-4">
+            <div className={`flex items-center gap-2 ${selectedCompanyId ? 'text-green-600' : 'text-gray-500'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                selectedCompanyId ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+              }`}>1</div>
+              <div className="flex flex-col">
+                <span className="font-medium">会社選択</span>
+                {selectedCompany && (
+                  <span className="text-xs text-gray-500">{selectedCompany.name}</span>
+                )}
+              </div>
             </div>
 
+            <div className={`w-12 h-0.5 ${selectedCompanyId ? 'bg-green-200' : 'bg-gray-200'}`}></div>
+
+            <div className={`flex items-center gap-2 ${selectedProductMasterId ? 'text-green-600' : selectedCompanyId ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                selectedProductMasterId ? 'bg-green-100 text-green-700' : selectedCompanyId ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
+              }`}>2</div>
+              <div className="flex flex-col">
+                <span className="font-medium">商品選択</span>
+                {selectedProduct && (
+                  <span className="text-xs text-gray-500">
+                    {selectedProduct.name}{getProgressProductInfo(selectedProduct)}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className={`w-12 h-0.5 ${selectedProductMasterId ? 'bg-green-200' : 'bg-gray-200'}`}></div>
+
+            <div className={`flex items-center gap-2 ${hasFilesSelected && selectedProductMasterId ? 'text-green-600' : selectedProductMasterId ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                hasFilesSelected && selectedProductMasterId ? 'bg-green-100 text-green-700' : selectedProductMasterId ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'
+              }`}>3</div>
+              <div className="flex flex-col">
+                <span className="font-medium">ファイル選択</span>
+                {hasFilesSelected && (
+                  <span className="text-xs text-gray-500">{selectedFiles.length}件選択中</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* アップロード設定 */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-4">📋 アップロード設定</h2>
+          
+          <div className="space-y-4 mb-6">
+            {/* Step 1: 会社選択（先行・必須） */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                対象会社
+                🏢 Step1: 対象会社を選択
               </label>
               <select
                 value={selectedCompanyId || ''}
-                onChange={(e) => setSelectedCompanyId(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) => {
+                  setSelectedCompanyId(e.target.value ? Number(e.target.value) : null);
+                  setSelectedProductMasterId(null); // 会社変更時は商品選択をリセット
+                  setDocuments([]); // ドキュメントもリセット
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">会社を選択してください</option>
+                <option value="">まず会社を選択してください</option>
                 {companies.map((company) => (
                   <option key={company.id} value={company.id}>
                     {company.name}
@@ -507,82 +595,114 @@ function AdminDocumentManagementPage() {
                 ))}
               </select>
             </div>
-          </div>
 
-          {/* ★★★ 修正：ファイルアップロードエリア（複数ファイル対応 + 状態表示） */}
-          <div className={`border-2 border-dashed rounded-lg p-6 transition-colors ${
-            hasFilesSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-          }`}>
-            <div className="text-center">
-              <Upload className={`h-12 w-12 mx-auto mb-4 ${hasFilesSelected ? 'text-blue-500' : 'text-gray-400'}`} />
-              <div className="flex items-center justify-center mb-4">
-                <input
-                  type="file"
-                  multiple // ★★★ 追加：複数ファイル選択
-                  onChange={handleFileChange}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif"
-                />
-              </div>
-              
-              {/* ★★★ 追加：選択されたファイル一覧 */}
-              {selectedFiles.length > 0 && (
-                <div className="mb-4">
-                  <div className="text-sm font-medium text-blue-700 mb-2">
-                    選択されたファイル ({selectedFiles.length}件 / {(totalFileSize / 1024 / 1024).toFixed(2)} MB)
-                  </div>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {selectedFiles.map((file, index) => (
-                      <div key={index} className="flex items-center justify-between bg-white p-2 rounded border">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                          <span className="text-sm truncate">{file.name}</span>
-                          <span className="text-xs text-gray-500 flex-shrink-0">
-                            ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                          </span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFile(index)}
-                          className="text-red-500 hover:text-red-700 p-1 h-auto"
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <Button
-                onClick={handleFileUpload}
-                disabled={selectedFiles.length === 0 || !selectedProductMasterId || !selectedCompanyId || isUploading}
-                className="flex items-center gap-2"
-              >
-                {isUploading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    アップロード中...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4" />
-                    {selectedFiles.length > 0 ? `${selectedFiles.length}件をアップロード & メール通知` : 'アップロード & メール通知'}
-                  </>
+            {/* Step 2: 商品選択（会社選択後に有効化） */}
+            {selectedCompanyId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  📦 Step2: 商品を選択
+                </label>
+                <select
+                  value={selectedProductMasterId || ''}
+                  onChange={(e) => setSelectedProductMasterId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">商品を選択してください</option>
+                  {availableProducts.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {getProductDisplayText(product)}
+                    </option>
+                  ))}
+                </select>
+                {availableProducts.length === 0 && (
+                  <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+                    <AlertTriangle className="h-4 w-4" />
+                    この会社には登録済み商品がありません
+                  </p>
                 )}
-              </Button>
-            </div>
+              </div>
+            )}
           </div>
 
-          {selectedProductMaster && selectedCompany && (
+          {/* ファイルアップロードエリア */}
+          {selectedCompanyId && selectedProductMasterId && (
+            <div className={`border-2 border-dashed rounded-lg p-6 transition-colors ${
+              hasFilesSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+            }`}>
+              <div className="text-center">
+                <Upload className={`h-12 w-12 mx-auto mb-4 ${hasFilesSelected ? 'text-blue-500' : 'text-gray-400'}`} />
+                <div className="flex items-center justify-center mb-4">
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleFileChange}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.gif"
+                  />
+                </div>
+                
+                {/* 選択されたファイル一覧 */}
+                {selectedFiles.length > 0 && (
+                  <div className="mb-4">
+                    <div className="text-sm font-medium text-blue-700 mb-2">
+                      選択されたファイル ({selectedFiles.length}件 / {(totalFileSize / 1024 / 1024).toFixed(2)} MB)
+                    </div>
+                    <div className="space-y-2 max-h-32 overflow-y-auto">
+                      {selectedFiles.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between bg-white p-2 rounded border">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                            <span className="text-sm truncate">{file.name}</span>
+                            <span className="text-xs text-gray-500 flex-shrink-0">
+                              ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeFile(index)}
+                            className="text-red-500 hover:text-red-700 p-1 h-auto"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                <Button
+                  onClick={handleFileUpload}
+                  disabled={selectedFiles.length === 0 || !selectedProductMasterId || !selectedCompanyId || isUploading}
+                  className="flex items-center gap-2"
+                >
+                  {isUploading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      アップロード中...
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" />
+                      {selectedFiles.length > 0 ? `${selectedFiles.length}件をアップロード & メール通知` : 'アップロード & メール通知'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 通知設定表示 */}
+          {selectedProduct && selectedCompany && (
             <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center gap-2 mb-2">
                 <Mail className="h-4 w-4 text-blue-600" />
                 <span className="font-medium text-blue-800">通知設定</span>
               </div>
               <div className="text-sm text-blue-700">
-                <div>商品: <span className="font-medium">{selectedProductMaster.name}</span></div>
+                <div>商品: <span className="font-medium">
+                  {selectedProduct.name}{getProgressProductInfo(selectedProduct)}
+                </span></div>
                 <div>通知先: <span className="font-medium">{selectedCompany.name}</span> の全ユーザー</div>
                 <div className="text-xs text-blue-600 mt-1">
                   ※アップロード完了後、自動でメール通知が送信されます
@@ -593,7 +713,7 @@ function AdminDocumentManagementPage() {
         </div>
 
         {/* ドキュメント一覧 */}
-        {selectedProductMasterId && (
+        {selectedProductMasterId && selectedCompanyId && (
           <div className="bg-white rounded-lg shadow">
             <div className="p-6 border-b">
               <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -625,7 +745,7 @@ function AdminDocumentManagementPage() {
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
                             {(doc.size / 1024 / 1024).toFixed(2)} MB
                           </span>
-                          {/* uploadedByのnullチェックを追加 */}
+                          {/* uploadedByのnullチェックを追加  */}
                           {doc.uploadedBy && (
                             <span className={`text-xs px-2 py-1 rounded ${
                               doc.uploadedBy.isAdmin 

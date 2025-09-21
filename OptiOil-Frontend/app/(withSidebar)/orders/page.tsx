@@ -1,6 +1,6 @@
 /**
  * ファイルパス: app/(withSidebar)/orders/page.tsx
- * 注文履歴ページ - 統一デザイン刷新版 + 承認ステータス表示対応 + 安全なユーザーアクセス修正
+ * 注文履歴ページ - 統一デザイン刷新版 + 承認ステータス表示対応 + 安全なユーザーアクセス修正 + packageType対応 + 備考欄表示対応
  */
 
 "use client";
@@ -12,14 +12,16 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Package, MapPin, User, Calendar, AlertCircle, Eye, X, Search, Filter, ArrowUpDown, Clock, CheckCircle, XCircle } from "lucide-react";
+import { Package, MapPin, User, Calendar, AlertCircle, Eye, X, Search, Filter, ArrowUpDown, Clock, CheckCircle, XCircle, FileText } from "lucide-react";
 
-// 🔥 共通コンポーネント導入
+import { MessageSquare } from "lucide-react";
+
+// 共通コンポーネント導入
 import { useNotification } from "@/app/(withSidebar)/common/hooks/useNotification";
 import { ToastContainer } from "@/app/(withSidebar)/common/components/Toast";
 import { useConfirmModal } from "@/app/(withSidebar)/common/components/ConfirmModal";
 import { ProtectedRoute } from "../common/components/ProtectedRoute";
-// ✅ 削除済みユーザー表示コンポーネント
+// 削除済みユーザー表示コンポーネント
 import { DeletedUserDisplay } from "@/app/(withSidebar)/common/components/DeletedUserDisplay";
 
 import { ENV } from '@/lib/env';
@@ -32,6 +34,7 @@ interface ProductMaster {
   capacity: string;
   unit: string;
   oilType: string;
+  packageType?: string;  // 荷姿情報を追加
 }
 
 interface CompanyProduct {
@@ -48,17 +51,17 @@ interface OrderItem {
   companyProduct: CompanyProduct;
 }
 
-// ✅ ユーザー型定義に削除済み対応フィールドを追加
+// ユーザー型定義に削除済み対応フィールドを追加
 interface OrderUser {
   id: number;
   name: string;
   email: string;
-  status?: string;           // ✅ 追加
-  isDeleted?: boolean;       // ✅ 追加
-  displayName?: string;      // ✅ 追加
+  status?: string;           // 追加
+  isDeleted?: boolean;       // 追加
+  displayName?: string;      // 追加
 }
 
-// ✅ 承認関連の型定義を追加
+// 承認関連の型定義を追加
 interface OrderApproval {
   id: number;
   status: 'pending' | 'approved' | 'rejected';
@@ -69,11 +72,13 @@ interface OrderApproval {
   approver?: {
     id: number;
     name: string;
+    displayName?: string;  // 追加
     isDeleted?: boolean;
   };
   requester?: {
     id: number;
     name: string;
+    displayName?: string;  // 追加
     isDeleted?: boolean;
   };
 }
@@ -96,11 +101,13 @@ interface Order {
   cancelRejectReason?: string;
   cancelMessage?: string;
   priceNote?: string;
-  // ✅ 承認関連フィールドを追加
+  // 🆕 備考欄フィールドを追加
+  userNote?: string;
+  // 承認関連フィールドを追加
   requiresApproval?: boolean;
   approvalStatus?: 'pending' | 'approved' | 'rejected';
   approval?: OrderApproval;
-  user?: OrderUser;          // ✅ optional に変更
+  user?: OrderUser;          // optional に変更
   orderItems: OrderItem[];
 }
 
@@ -116,10 +123,10 @@ interface OrderDocument {
   createdAt: string;
 }
 
-// ✅ 通常の注文ステータス（管理者が手動で変更するまで）
+// 通常の注文ステータス（管理者が手動で変更するまで）
 const statusLabels: Record<string, { label: string; color: string }> = {
   pending: { label: '注文受付', color: 'bg-blue-500 text-white' },
-  approved: { label: '注文受付', color: 'bg-blue-500 text-white' }, // ✅ approvedでも「注文受付」のまま
+  approved: { label: '注文受付', color: 'bg-blue-500 text-white' }, // approved でも「注文受付」のまま
   confirmed: { label: '注文確定', color: 'bg-[#115e59] text-white' }, // 管理者が手動で確定した場合
   processing: { label: '商品手配中', color: 'bg-amber-500 text-white' },
   shipped: { label: '配送中', color: 'bg-purple-500 text-white' },
@@ -130,14 +137,14 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   cancel_rejected: { label: 'キャンセル拒否', color: 'bg-red-600 text-white' }
 };
 
-// ✅ 承認ステータス表示（承認が必要な注文のみ）
+// 承認ステータス表示（承認が必要な注文のみ）
 const approvalStatusLabels: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: '注文承認待ち', color: 'bg-amber-500 text-white', icon: Clock },
   approved: { label: '注文承認済', color: 'bg-emerald-500 text-white', icon: CheckCircle },
   rejected: { label: '却下済み', color: 'bg-red-600 text-white', icon: XCircle }
 };
 
-// ✅ 注文ステータス表示コンポーネント
+// 注文ステータス表示コンポーネント
 const OrderStatusBadge = ({ order }: { order: Order }) => {
   const statusInfo = statusLabels[order.status] || statusLabels['pending'];
   
@@ -148,7 +155,7 @@ const OrderStatusBadge = ({ order }: { order: Order }) => {
   );
 };
 
-// ✅ 承認ステータス表示コンポーネント
+// 承認ステータス表示コンポーネント
 const ApprovalStatusBadge = ({ order }: { order: Order }) => {
   if (!order.requiresApproval) {
     return null; // 承認不要な注文には何も表示しない
@@ -166,14 +173,14 @@ const ApprovalStatusBadge = ({ order }: { order: Order }) => {
   );
 };
 
-// ✅ 安全なユーザー名表示のヘルパー関数
+// 安全なユーザー名表示のヘルパー関数
 const getSafeUserName = (user: OrderUser | undefined): string => {
   if (!user) return '不明なユーザー';
   if (user.status === 'deleted' || user.isDeleted) return '削除済みアカウント';
   return user.displayName || user.name || '不明なユーザー';
 };
 
-// ✅ 安全なユーザー削除状態取得のヘルパー関数
+// 安全なユーザー削除状態取得のヘルパー関数
 const isUserDeleted = (user: OrderUser | undefined): boolean => {
   if (!user) return false;
   return user.status === 'deleted' || user.isDeleted === true;
@@ -200,7 +207,39 @@ export default function OrderHistoryPage() {
   // ドキュメント管理用state
   const [orderDocuments, setOrderDocuments] = useState<Record<number, OrderDocument[]>>({});
 
-  // 🔥 共通通知システム
+  // 🆕 備考欄の省略表示コンポーネント（枠付き・小さいフォント）
+  const CompactNoteDisplay = ({ note, maxLength = 50 }: { note: string; maxLength?: number }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    
+    if (!note) return null;
+    
+    const isLong = note.length > maxLength;
+    const displayText = isLong && !isExpanded ? `${note.slice(0, maxLength)}...` : note;
+    
+    return (
+      <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-200">
+        <div className="flex items-start gap-2">
+          <MessageSquare className="h-3 w-3 text-[#115e59] mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-[#115e59] mb-1">備考</div>
+            <div className="text-xs text-slate-600 break-words leading-relaxed">
+              {displayText}
+              {isLong && (
+                <button
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="ml-2 text-[#115e59] hover:text-[#0f766e] font-medium text-xs underline"
+                >
+                  {isExpanded ? '省略表示' : '全文表示'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // 共通通知システム
   const notification = useNotification();
   const { openConfirm } = useConfirmModal();
 
@@ -324,34 +363,53 @@ export default function OrderHistoryPage() {
       if (response.ok) {
         const data = await response.json();
         
-        // ✅ APIレスポンスに削除済み情報がない場合は、フロントエンドで生成
-        const processedOrders = data.map((order: Order) => ({
-          ...order,
-          user: order.user ? {
-            ...order.user,
-            isDeleted: order.user.status === "deleted" || order.user.isDeleted || false,
-            displayName: (order.user.status === "deleted" || order.user.isDeleted) 
-              ? "削除済みアカウント" 
-              : (order.user.displayName || order.user.name)
-          } : undefined, // ✅ userがundefinedの場合はそのまま
-          // ✅ 承認者情報も削除済み対応 - より安全に
-          approval: order.approval ? {
-            ...order.approval,
-            approver: order.approval.approver ? {
-              ...order.approval.approver,
-              isDeleted: order.approval.approver.isDeleted || false
-            } : undefined,
-            requester: order.approval.requester ? {
-              ...order.approval.requester,
-              isDeleted: order.approval.requester.isDeleted || false
-            } : {
-              // ✅ requesterがundefinedの場合のフォールバック
-              id: 0,
-              name: '不明なユーザー',
-              isDeleted: false
-            }
-          } : undefined
-        }));
+        // デバッグログを追加して承認情報を確認
+        data.forEach((order: Order, index: number) => {
+          if (order.approval?.requester) {
+            console.log(`🔍 注文${index + 1} 承認申請者情報:`, {
+              orderNumber: order.orderNumber,
+              requester: {
+                id: order.approval.requester.id,
+                name: order.approval.requester.name,
+                isDeleted: order.approval.requester.isDeleted
+              }
+            });
+          }
+        });
+        
+        // APIレスポンスに削除済み情報がない場合はフロントエンドで生成
+        const processedOrders = data.map((order: Order) => {
+          return {
+            ...order,
+            user: order.user ? {
+              ...order.user,
+              isDeleted: order.user.status === "deleted" || order.user.isDeleted || false,
+              displayName: (order.user.status === "deleted" || order.user.isDeleted) 
+                ? "削除済みアカウント" 
+                : (order.user.displayName || order.user.name)
+            } : undefined, // user がundefined の場合はそのまま
+            // 承認者情報も削除済み対応 - より安全に
+            approval: order.approval ? {
+              ...order.approval,
+              approver: order.approval.approver ? {
+                ...order.approval.approver,
+                isDeleted: order.approval.approver.isDeleted || false,
+                displayName: order.approval.approver.displayName || order.approval.approver.name || `ID:${order.approval.approver.id}` // 統一
+              } : undefined,
+              requester: order.approval.requester ? {
+                ...order.approval.requester,
+                isDeleted: order.approval.requester.isDeleted || false,
+                displayName: order.approval.requester.displayName || order.approval.requester.name || `ID:${order.approval.requester.id}` // 復活
+              } : {
+                // requesterがundefinedの場合のフォールバック
+                id: 0,
+                name: '不明なユーザー',
+                displayName: '不明なユーザー', // 追加
+                isDeleted: false
+              }
+            } : undefined
+          };
+        });
         
         setOrders(processedOrders);
         
@@ -429,7 +487,26 @@ export default function OrderHistoryPage() {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
   };
 
-  // ✅ 承認ステータス表示コンポーネント
+  // 🆕 備考欄表示コンポーネント
+  const UserNoteDisplay = ({ userNote }: { userNote?: string }) => {
+    if (!userNote || !userNote.trim()) {
+      return null;
+    }
+
+    return (
+      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="flex items-center gap-2 mb-2">
+          <FileText className="h-4 w-4 text-blue-600" />
+          <span className="text-sm font-medium text-blue-700">備考</span>
+        </div>
+        <div className="text-sm text-blue-700 whitespace-pre-wrap bg-white p-2 rounded border">
+          {userNote}
+        </div>
+      </div>
+    );
+  };
+
+  // 承認ステータス表示コンポーネント
   const ApprovalStatusBadge = ({ order }: { order: Order }) => {
     if (!order.requiresApproval) {
       return null; // 承認不要な注文には何も表示しない
@@ -447,7 +524,7 @@ export default function OrderHistoryPage() {
     );
   };
 
-// ✅ 承認詳細情報表示コンポーネント - 安全なアクセス
+  // 承認詳細情報表示コンポーネント - 安全なアクセス
   const ApprovalDetails = ({ order }: { order: Order }) => {
     if (!order.requiresApproval || !order.approval) {
       return null;
@@ -469,12 +546,12 @@ export default function OrderHistoryPage() {
             <span>{formatDate(approval.requestedAt)}</span>
           </div>
           
-          {/* ✅ requesterの安全なアクセス */}
+          {/* requesterの安全なアクセス */}
           {approval.requester && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
               <span className="font-medium">申請者:</span>
               <DeletedUserDisplay 
-                name={approval.requester.name || '不明なユーザー'}
+                name={approval.requester.displayName || approval.requester.name || `不明なユーザー (ID: ${approval.requester.id || 'N/A'})`}
                 isDeleted={approval.requester.isDeleted || false}
                 showIcon={false}
                 size="sm"
@@ -487,7 +564,7 @@ export default function OrderHistoryPage() {
               <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
                 <span className="font-medium">承認者:</span>
                 <DeletedUserDisplay 
-                  name={approval.approver.name || '不明なユーザー'}
+                  name={approval.approver.displayName || approval.approver.name || '不明なユーザー'}
                   isDeleted={approval.approver.isDeleted || false}
                   showIcon={false}
                   size="sm"
@@ -506,7 +583,7 @@ export default function OrderHistoryPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4">
                   <span className="font-medium">却下者:</span>
                   <DeletedUserDisplay 
-                    name={approval.approver.name || '不明なユーザー'}
+                    name={approval.approver.displayName || approval.approver.name || '不明なユーザー'}
                     isDeleted={approval.approver.isDeleted || false}
                     showIcon={false}
                     size="sm"
@@ -599,14 +676,14 @@ export default function OrderHistoryPage() {
                 <label className="block text-xs font-medium text-slate-700 mb-1">
                   順序
                 </label>
-              <Button
-                variant="outline"                                    
-                onClick={toggleSortOrder}                   
-                className="w-full justify-between bg-[#115e59] border-[#115e59] text-white hover:bg-[#0f766e] h-8 text-xs px-2"                 
-              >                   
-                {sortOrder === 'desc' ? '新しい順' : '古い順'}                   
-                <ArrowUpDown className="h-3 w-3" />                 
-              </Button>              
+                <Button
+                  variant="outline"                                    
+                  onClick={toggleSortOrder}                   
+                  className="w-full justify-between bg-[#115e59] border-[#115e59] text-white hover:bg-[#0f766e] h-8 text-xs px-2"                 
+                >                   
+                  {sortOrder === 'desc' ? '新しい順' : '古い順'}                   
+                  <ArrowUpDown className="h-3 w-3" />                 
+                </Button>              
               </div>
             </div>
             
@@ -684,7 +761,7 @@ export default function OrderHistoryPage() {
                           {new Date(order.createdAt).toLocaleDateString('ja-JP')}
                         </span>
                         <span className="flex items-center gap-1">
-                          {/* ✅ 安全なユーザー表示 */}
+                          {/* 安全なユーザー表示 */}
                           <DeletedUserDisplay 
                             name={getSafeUserName(order.user)}
                             isDeleted={isUserDeleted(order.user)}
@@ -710,24 +787,35 @@ export default function OrderHistoryPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                {/* 商品一覧の簡単表示 */}
-                <div className="mb-3">
-                  <div className="text-xs text-slate-600 space-y-1">
-                    {order.orderItems.slice(0, 2).map((item) => (
-                      <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between gap-1">
-                        <span className="truncate pr-2 flex-1">{item.companyProduct.productMaster.name}</span>
-                        <span className="text-xs whitespace-nowrap text-slate-500">{item.quantity}個 × {item.unitPrice.toLocaleString()}円</span>
-                      </div>
-                    ))}
-                    {order.orderItems.length > 2 && (
-                      <div className="text-slate-400 text-xs">
-                        他{order.orderItems.length - 2}点...
-                      </div>
-                    )}
+                  {/* 商品一覧の簡単表示 */}
+                  <div className="mb-3">
+                    <div className="text-xs text-slate-600 space-y-1">
+                      {order.orderItems.slice(0, 2).map((item) => (
+                        <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between gap-1">
+                          <span className="truncate pr-2 flex-1">
+                            {item.companyProduct.productMaster.name}
+                            {/* 荷姿情報を追加表示 */}
+                            {item.companyProduct.productMaster.packageType && (
+                              <span className="text-xs text-slate-400 ml-1">
+                                ({item.companyProduct.productMaster.packageType})
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-xs whitespace-nowrap text-slate-500">{item.quantity}個 × {item.unitPrice.toLocaleString()}円</span>
+                        </div>
+                      ))}
+                      {order.orderItems.length > 2 && (
+                        <div className="text-slate-400 text-xs">
+                          他{order.orderItems.length - 2}点...
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                  {/* ✅ 承認詳細情報を表示 */}
+                  {/* 🆕 備考欄表示 */}
+                  {order.userNote && <CompactNoteDisplay note={order.userNote} />}
+
+                  {/* 承認詳細情報を表示 */}
                   <ApprovalDetails order={order} />
 
                   {/* キャンセル理由の表示 */}
@@ -752,52 +840,52 @@ export default function OrderHistoryPage() {
                     </div>
                   )}
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-start gap-1 flex-1 min-w-0">
-                    <MapPin className="h-3 w-3 mt-1 text-slate-400 flex-shrink-0" />
-                    <div className="text-xs text-slate-600 min-w-0">
-                      <div className="font-medium truncate">{order.deliveryName}</div>
-                      {order.deliveryCompany && <div className="truncate">{order.deliveryCompany}</div>}
-                      <div className="truncate">
-                        〒{order.deliveryZipCode} {order.deliveryPrefecture}{order.deliveryCity}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-1 flex-1 min-w-0">
+                      <MapPin className="h-3 w-3 mt-1 text-slate-400 flex-shrink-0" />
+                      <div className="text-xs text-slate-600 min-w-0">
+                        <div className="font-medium truncate">{order.deliveryName}</div>
+                        {order.deliveryCompany && <div className="truncate">{order.deliveryCompany}</div>}
+                        <div className="truncate">
+                          〒{order.deliveryZipCode} {order.deliveryPrefecture}{order.deliveryCity}
+                        </div>
+                        <div className="truncate">{order.deliveryAddress1}</div>
                       </div>
-                      <div className="truncate">{order.deliveryAddress1}</div>
                     </div>
-                  </div>
-                  <div className="flex gap-1 flex-wrap justify-end sm:justify-start">
-                    {/* 詳細ボタン */}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openOrderDetail(order)}
-                      className="border-[#115e59] text-[#115e59] hover:bg-[#115e59] hover:text-white text-xs px-2 py-1 h-7 min-w-fit"
-                    >
-                      <Eye className="h-3 w-3 mr-1" />
-                      詳細
-                    </Button>
-                    
-                    {/* キャンセル申請ボタン */}
-                    {canCancel(order.status) && (
+                    <div className="flex gap-1 flex-wrap justify-end sm:justify-start">
+                      {/* 詳細ボタン */}
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleCancelRequest(order.id)}
-                        className="text-red-600 hover:text-white border-red-600 hover:bg-red-600 text-xs px-2 py-1 h-7 min-w-fit"
+                        onClick={() => openOrderDetail(order)}
+                        className="border-[#115e59] text-[#115e59] hover:bg-[#115e59] hover:text-white text-xs px-2 py-1 h-7 min-w-fit"
                       >
-                        <AlertCircle className="h-3 w-3 mr-1" />
-                        <span className="hidden sm:inline">キャンセル</span>
-                        <span className="sm:hidden">取消</span>
+                        <Eye className="h-3 w-3 mr-1" />
+                        詳細
                       </Button>
-                    )}
-                  </div>
-                </div>                
+                      
+                      {/* キャンセル申請ボタン */}
+                      {canCancel(order.status) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleCancelRequest(order.id)}
+                          className="text-red-600 hover:text-white border-red-600 hover:bg-red-600 text-xs px-2 py-1 h-7 min-w-fit"
+                        >
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          <span className="hidden sm:inline">キャンセル</span>
+                          <span className="sm:hidden">取消</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>                
                 </CardContent>
               </Card>
             ))}
           </div>
         )}
 
-    {/* 注文詳細モーダル - スマホ対応 */}
+        {/* 注文詳細モーダル - スマホ対応 */}
         <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
           <DialogContent className="w-[95vw] max-w-2xl max-h-[95vh] overflow-y-auto border-slate-200 p-3 sm:p-6">
             <DialogHeader className="pb-3">
@@ -824,7 +912,7 @@ export default function OrderHistoryPage() {
                       <div>注文日時: {new Date(selectedOrder.createdAt).toLocaleString('ja-JP')}</div>
                       <div className="flex items-center gap-2 flex-wrap">
                         注文者: 
-                        {/* ✅ 安全なユーザー表示 */}
+                        {/* 安全なユーザー表示 */}
                         <DeletedUserDisplay 
                           name={getSafeUserName(selectedOrder.user)}
                           isDeleted={isUserDeleted(selectedOrder.user)}
@@ -832,14 +920,17 @@ export default function OrderHistoryPage() {
                           size="sm"
                         />
                       </div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          ステータス: 
-                          <OrderStatusBadge order={selectedOrder} />
-                          <ApprovalStatusBadge order={selectedOrder} />
-                        </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        ステータス: 
+                        <OrderStatusBadge order={selectedOrder} />
+                        <ApprovalStatusBadge order={selectedOrder} />
+                      </div>
                     </div>
                     
-                    {/* ✅ 詳細モーダルで承認詳細情報を表示 */}
+                    {/* 🆕 詳細モーダルでも備考表示 */}
+                     {selectedOrder.userNote && <CompactNoteDisplay note={selectedOrder.userNote} />}
+                    
+                    {/* 詳細モーダルで承認詳細情報を表示 */}
                     <ApprovalDetails order={selectedOrder} />
                     
                     {/* 詳細画面でのキャンセル理由表示 */}
@@ -896,6 +987,12 @@ export default function OrderHistoryPage() {
                           </div>
                           <div className="text-xs text-slate-500">
                             容量: {item.companyProduct.productMaster.capacity}{item.companyProduct.productMaster.unit}
+                            {/* 荷姿情報を詳細表示に追加 */}
+                            {item.companyProduct.productMaster.packageType && (
+                              <span className="ml-2">
+                                荷姿: {item.companyProduct.productMaster.packageType}
+                              </span>
+                            )}
                           </div>
                           <div className="flex justify-between items-center pt-2 border-t border-slate-100">
                             <div className="text-xs text-slate-600">
@@ -948,6 +1045,12 @@ export default function OrderHistoryPage() {
                                     {item.companyProduct.productMaster.manufacturer} | 
                                     {item.companyProduct.productMaster.code} | 
                                     {item.companyProduct.productMaster.capacity}{item.companyProduct.productMaster.unit}
+                                    {/* PC表示でも荷姿情報を追加 */}
+                                    {item.companyProduct.productMaster.packageType && (
+                                      <span className="ml-1">
+                                        | {item.companyProduct.productMaster.packageType}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </td>
@@ -1021,7 +1124,7 @@ export default function OrderHistoryPage() {
           </DialogContent>
         </Dialog>
 
-        {/* 🔥 共通通知システム */}
+        {/* 共通通知システム */}
         <ToastContainer 
           toasts={notification.toasts} 
           onClose={notification.removeToast} 

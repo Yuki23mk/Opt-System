@@ -1,6 +1,6 @@
 /**
  * ファイルパス: optioil-admin/app/users/page.tsx
- * 管理者画面 - ユーザー管理ページ（構造修正版）
+ * 管理者画面 - ユーザー管理ページ（階層表示対応版）
  */
 
 "use client";
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Search, UserCheck, UserX, Building2, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Search, UserCheck, UserX, Building2, AlertTriangle, ArrowLeft, Users, ChevronDown, ChevronRight, UserMinus } from "lucide-react";
 import { ENV } from '@/lib/env';
 
 interface User {
@@ -29,7 +29,9 @@ interface User {
   phone?: string;
   status: "pending" | "active" | "deleted";
   createdAt: string;
-  systemRole: string;
+  systemRole: "main" | "child";
+  createdById?: number | null; // サブアカウント用
+  children?: User[]; // サブアカウント用
 }
 
 interface Company {
@@ -42,7 +44,7 @@ interface Company {
 
 export default function UserManagementPage() {
   const router = useRouter();
-  const [users, setUsers] = useState<User[]>([]);
+  const [mainUsers, setMainUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "active" | "deleted">("all");
@@ -51,9 +53,9 @@ export default function UserManagementPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [expandedUsers, setExpandedUsers] = useState<Set<number>>(new Set()); // 🔄 初期状態を空に変更
 
-
-const API_URL = ENV.API_URL;;
+  const API_URL = ENV.API_URL;
 
   // データ取得
   useEffect(() => {
@@ -79,7 +81,7 @@ const API_URL = ENV.API_URL;;
       }
       
       const fullUrl = `${API_URL}/api/admin/users`;
-      console.log("🔍 API呼び出し:", { API_URL, fullUrl, token: token ? "あり" : "なし" });
+      console.log("🔍 APIコール:", { API_URL, fullUrl, token: token ? "あり" : "なし" });
       
       const response = await fetch(fullUrl, {
         headers: { Authorization: `Bearer ${token}` },
@@ -97,7 +99,60 @@ const API_URL = ENV.API_URL;;
       if (response.ok) {
         const data = await response.json();
         console.log("✅ ユーザーデータ取得成功:", data);
-        setUsers(data.users || []);
+        
+        // メインアカウントのみを抽出し、サブアカウントを階層化
+        const allUsers = data.users || [];
+        console.log("📊 全ユーザー数:", allUsers.length);
+        
+        // ユーザーデータの詳細ログ
+        allUsers.forEach((user: User) => {
+          console.log(`👤 ユーザー: ${user.name} (${user.systemRole}) - 作成者ID: ${user.createdById}`);
+        });
+        
+        // メインアカウントのみを抽出
+        const mainAccounts = allUsers.filter((user: User) => user.systemRole === "main");
+        console.log("🏢 メインアカウント数:", mainAccounts.length);
+        
+        // サブアカウントを抽出
+        const subAccounts = allUsers.filter((user: User) => user.systemRole === "child");
+        console.log("👥 サブアカウント数:", subAccounts.length);
+        
+        // 各メインアカウントにサブアカウントを追加
+        const hierarchicalUsers = mainAccounts.map((mainUser: User) => {
+          const children = subAccounts.filter((subUser: User) => {
+            // createdByIdで関連付け、またはcompanyIdが同じ場合も考慮
+            const isChildOfMain = subUser.createdById === mainUser.id || 
+                                 (subUser.companyRel.id === mainUser.companyRel.id && subUser.systemRole === "child");
+            
+            if (isChildOfMain) {
+              console.log(`🔗 ${subUser.name} は ${mainUser.name} のサブアカウント`);
+            }
+            
+            return isChildOfMain;
+          });
+          
+          console.log(`👨‍👩‍👧‍👦 ${mainUser.name} のサブアカウント数: ${children.length}`);
+          
+          return {
+            ...mainUser,
+            children: children
+          };
+        });
+        
+        console.log("🏗️ 階層化されたユーザー:", hierarchicalUsers);
+        
+        setMainUsers(hierarchicalUsers);
+        
+        // 🔄 初期状態では全て閉じた状態にする（コメントアウト）
+        // const usersWithChildren = hierarchicalUsers
+        //   .filter(user => user.children && user.children.length > 0)
+        //   .map(user => user.id);
+        
+        // if (usersWithChildren.length > 0) {
+        //   setExpandedUsers(new Set(usersWithChildren));
+        //   console.log("🔽 初期展開ユーザー:", usersWithChildren);
+        // }
+        
       } else {
         console.error("❌ API エラー:", response.status, await response.text());
       }
@@ -141,10 +196,17 @@ const API_URL = ENV.API_URL;;
     }
   };
 
-  // ユーザー承認
+  // ✨ サブアカウント数の計算（アクティブと削除済みを分離）
+  const getChildrenCounts = (children: User[]) => {
+    const active = children.filter(child => child.status === "active").length;
+    const deleted = children.filter(child => child.status === "deleted").length;
+    return { active, deleted, total: children.length };
+  };
+
+  // ユーザー承認（メインアカウントのみ）
   const handleApproveUser = async (userId: number) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
+    const user = findUserById(userId);
+    if (!user || user.systemRole !== "main") return;
 
     // 会社の製品設定チェック（既存API構造に対応）
     const company = companies.find(c => c.id === user.companyRel.id);
@@ -179,9 +241,9 @@ const API_URL = ENV.API_URL;;
     }
   };
 
-  // ユーザー拒否
+  // ユーザー拒否（メインアカウントのみ）
   const handleRejectUser = async () => {
-    if (!selectedUser || !rejectReason.trim()) {
+    if (!selectedUser || !rejectReason.trim() || selectedUser.systemRole !== "main") {
       alert("拒否理由を入力してください");
       return;
     }
@@ -216,20 +278,48 @@ const API_URL = ENV.API_URL;;
     }
   };
 
+  // ユーザー検索（階層対応）
+  const findUserById = (userId: number): User | null => {
+    for (const mainUser of mainUsers) {
+      if (mainUser.id === userId) return mainUser;
+      if (mainUser.children) {
+        const childUser = mainUser.children.find(child => child.id === userId);
+        if (childUser) return childUser;
+      }
+    }
+    return null;
+  };
+
   // フィルタリング
-  const filteredUsers = users.filter(user => {
+  const filteredUsers = mainUsers.filter(user => {
     const matchesSearch = 
       user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.companyRel.name.toLowerCase().includes(searchTerm.toLowerCase());
+      user.companyRel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.children && user.children.some(child => 
+        child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        child.email.toLowerCase().includes(searchTerm.toLowerCase())
+      ));
     
     const matchesStatus = filterStatus === "all" || user.status === filterStatus;
     
     return matchesSearch && matchesStatus;
   });
 
-  // ステータス表示
-  const getStatusBadge = (status: string) => {
+  // 展開/折りたたみ
+  const toggleExpanded = (userId: number) => {
+    const newExpanded = new Set(expandedUsers);
+    if (newExpanded.has(userId)) {
+      newExpanded.delete(userId);
+    } else {
+      newExpanded.add(userId);
+    }
+    setExpandedUsers(newExpanded);
+    console.log("🔄 展開状態更新:", { userId, expanded: !expandedUsers.has(userId) });
+  };
+
+  // ステータス表示（メインアカウント用）
+  const getMainStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
         return <Badge className="bg-red-100 text-red-800 border-red-200">承認待ち</Badge>;
@@ -242,7 +332,17 @@ const API_URL = ENV.API_URL;;
     }
   };
 
-  // 会社の製品設定状況チェック（既存API構造に対応）
+  // ステータス表示（サブアカウント用：削除済みのみ表示）
+  const getSubStatusBadge = (status: string) => {
+    switch (status) {
+      case "deleted":
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200">削除済み</Badge>;
+      default:
+        return null; // 承認系ステータスは非表示
+    }
+  };
+
+  // 会社の製品設定状況チェック
   const getCompanyProductStatus = (companyId: number) => {
     const company = companies.find(c => c.id === companyId);
     if (!company) return false;
@@ -313,20 +413,69 @@ const API_URL = ENV.API_URL;;
           </CardContent>
         </Card>
 
-        {/* ユーザー一覧 */}
+        {/* ユーザー一覧（階層表示） */}
         <div className="grid gap-4">
-          {filteredUsers.map((user) => {
-            const hasCompanyProducts = getCompanyProductStatus(user.companyRel.id);
+          {filteredUsers.map((mainUser) => {
+            const hasCompanyProducts = getCompanyProductStatus(mainUser.companyRel.id);
+            const isExpanded = expandedUsers.has(mainUser.id);
+            const hasChildren = mainUser.children && mainUser.children.length > 0;
+            
+            // ✨ サブアカウント数の計算
+            const childCounts = hasChildren ? getChildrenCounts(mainUser.children!) : { active: 0, deleted: 0, total: 0 };
+            
+            console.log(`🎭 描画中: ${mainUser.name}, サブアカウント: ${hasChildren ? mainUser.children?.length : 0}, 展開: ${isExpanded}`);
             
             return (
-              <Card key={user.id} className={user.status === "pending" ? "border-red-200 bg-red-50" : ""}>
+              <Card key={mainUser.id} className={mainUser.status === "pending" ? "border-red-200 bg-red-50" : ""}>
                 <CardContent className="p-3">
+                  {/* メインアカウント */}
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-1">
-                        <h3 className="font-semibold text-base">{user.name}</h3>
-                        {getStatusBadge(user.status)}
-                        {user.status === "pending" && !hasCompanyProducts && (
+                        <div className="flex items-center gap-2">
+                          {hasChildren && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleExpanded(mainUser.id)}
+                              className={`
+                                h-8 w-8 p-0 transition-all duration-200 border-2
+                                ${isExpanded 
+                                  ? 'bg-blue-500 border-blue-500 text-white hover:bg-blue-600' 
+                                  : 'bg-white border-blue-300 text-blue-500 hover:bg-blue-50 hover:border-blue-400'
+                                }
+                              `}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
+                          <h3 className="font-semibold text-base">{mainUser.name}</h3>
+                          <Badge variant="outline" className="text-xs bg-blue-50 border-blue-200">メイン</Badge>
+                        </div>
+                        {getMainStatusBadge(mainUser.status)}
+                        {hasChildren && (
+                          <div className="flex items-center gap-2">
+                            {/* アクティブユーザー数 */}
+                            {childCounts.active > 0 && (
+                              <div className="flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+                                <Users className="h-4 w-4" />
+                                <span className="text-sm font-medium">{childCounts.active}名</span>
+                              </div>
+                            )}
+                            {/* 削除済みユーザー数 */}
+                            {childCounts.deleted > 0 && (
+                              <div className="flex items-center gap-1 text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+                                <UserMinus className="h-4 w-4" />
+                                <span className="text-sm">削除済み{childCounts.deleted}名</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {mainUser.status === "pending" && !hasCompanyProducts && (
                           <div className="flex items-center gap-1 text-amber-600">
                             <AlertTriangle className="h-4 w-4" />
                             <span className="text-sm">製品設定要</span>
@@ -336,22 +485,22 @@ const API_URL = ENV.API_URL;;
                       
                       <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
                         <div>
-                          <p><strong>メール:</strong> {user.email}</p>
-                          <p><strong>会社:</strong> {user.companyRel.name}</p>
-                          {user.department && <p><strong>部署:</strong> {user.department}</p>}
+                          <p><strong>メール:</strong> {mainUser.email}</p>
+                          <p><strong>会社:</strong> {mainUser.companyRel.name}</p>
+                          {mainUser.department && <p><strong>部署:</strong> {mainUser.department}</p>}
                         </div>
                         <div>
-                          {user.position && <p><strong>役職:</strong> {user.position}</p>}
-                          {user.phone && <p><strong>電話:</strong> {user.phone}</p>}
-                          <p><strong>申請日:</strong> {new Date(user.createdAt).toLocaleDateString('ja-JP')}</p>
+                          {mainUser.position && <p><strong>役職:</strong> {mainUser.position}</p>}
+                          {mainUser.phone && <p><strong>電話:</strong> {mainUser.phone}</p>}
+                          <p><strong>申請日:</strong> {new Date(mainUser.createdAt).toLocaleDateString('ja-JP')}</p>
                         </div>
                       </div>
 
-                      {user.status === "pending" && !hasCompanyProducts && (
+                      {mainUser.status === "pending" && !hasCompanyProducts && (
                         <Alert className="mt-3 border-amber-200 bg-amber-50">
                           <AlertTriangle className="h-4 w-4" />
                           <AlertDescription>
-                            承認前に「{user.companyRel.name}」の表示製品設定が必要です。
+                            承認前に「{mainUser.companyRel.name}」の表示製品設定が必要です。
                             <Button 
                               variant="link" 
                               className="p-0 h-auto text-blue-600"
@@ -364,23 +513,24 @@ const API_URL = ENV.API_URL;;
                       )}
                     </div>
 
-                    {user.status === "pending" && (
+                    {/* メインアカウント用承認ボタン */}
+                    {mainUser.status === "pending" && (
                       <div className="flex gap-2">
                         <Button
-                          onClick={() => handleApproveUser(user.id)}
-                          disabled={actionLoading === user.id}
+                          onClick={() => handleApproveUser(mainUser.id)}
+                          disabled={actionLoading === mainUser.id}
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <UserCheck className="h-4 w-4 mr-1" />
-                          {actionLoading === user.id ? "処理中..." : "承認"}
+                          {actionLoading === mainUser.id ? "処理中..." : "承認"}
                         </Button>
                         
-                        <Dialog open={showRejectDialog && selectedUser?.id === user.id} onOpenChange={setShowRejectDialog}>
+                        <Dialog open={showRejectDialog && selectedUser?.id === mainUser.id} onOpenChange={setShowRejectDialog}>
                           <DialogTrigger asChild>
                             <Button
-                              onClick={() => setSelectedUser(user)}
+                              onClick={() => setSelectedUser(mainUser)}
                               variant="destructive"
-                              disabled={actionLoading === user.id}
+                              disabled={actionLoading === mainUser.id}
                             >
                               <UserX className="h-4 w-4 mr-1" />
                               拒否
@@ -392,7 +542,7 @@ const API_URL = ENV.API_URL;;
                             </DialogHeader>
                             <div className="space-y-4">
                               <p className="text-sm text-gray-600">
-                                {user.name}さんの申請を拒否します。拒否理由を入力してください。
+                                {mainUser.name}さんの申請を拒否します。拒否理由を入力してください。
                               </p>
                               <textarea
                                 value={rejectReason}
@@ -415,6 +565,46 @@ const API_URL = ENV.API_URL;;
                       </div>
                     )}
                   </div>
+
+                  {/* サブアカウント表示 */}
+                  {hasChildren && isExpanded && (
+                    <div className="mt-4 ml-8 border-l-3 border-blue-200 pl-4 space-y-3 bg-blue-50/30 rounded-r-lg py-3">
+                      <div className="text-sm text-blue-700 font-medium flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        サブアカウント
+                        {childCounts.active > 0 && (
+                          <span className="text-blue-600">({childCounts.active}名)</span>
+                        )}
+                        {childCounts.deleted > 0 && (
+                          <span className="text-gray-500">・削除済み{childCounts.deleted}名</span>
+                        )}
+                      </div>
+                      {mainUser.children?.map((childUser) => {
+                        const statusBadge = getSubStatusBadge(childUser.status);
+                        
+                        return (
+                          <div key={childUser.id} className="bg-white rounded-md p-3 border border-blue-100">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="font-medium text-sm">{childUser.name}</h4>
+                              <Badge variant="outline" className="text-xs bg-gray-50 border-gray-200">サブ</Badge>
+                              {statusBadge}
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                              <div>
+                                <p><strong>メール:</strong> {childUser.email}</p>
+                                {childUser.department && <p><strong>部署:</strong> {childUser.department}</p>}
+                              </div>
+                              <div>
+                                {childUser.position && <p><strong>役職:</strong> {childUser.position}</p>}
+                                <p><strong>作成日:</strong> {new Date(childUser.createdAt).toLocaleDateString('ja-JP')}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             );

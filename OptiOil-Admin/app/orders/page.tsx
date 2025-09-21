@@ -1,6 +1,6 @@
 /**
  * ファイルパス: optioil-admin/app/orders/page.tsx
- * 管理者画面 - 受注管理ページ（一部納品済みステータス調整版）
+ * 管理者画面 - 受注管理ページ（備考欄表示対応版）
  */
 
 "use client";
@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Calendar, User, MapPin, FileText, CheckCircle, XCircle, Package, AlertTriangle, ArrowLeft, Stamp, Check } from "lucide-react";
+import { Calendar, User, MapPin, FileText, CheckCircle, XCircle, Package, AlertTriangle, ArrowLeft, Stamp, Check, MessageSquare } from "lucide-react";
 import { toast } from 'sonner';
 import { ENV } from '@/lib/env';
 
@@ -46,7 +46,8 @@ interface Order {
   cancelReason?: string;
   cancelRejectReason?: string;
   requiresApproval?: boolean;
-  approvalStatus?: string; // pending/approved/rejected
+  approvalStatus?: string;
+  userNote?: string; // 🆕 備考欄を追加
   approval?: {
     id: number;
     status: string;
@@ -91,6 +92,38 @@ interface OrderPaperwork {
   };
 }
 
+// 🆕 備考欄の省略表示コンポーネント（枠付き・小さいフォント）
+const CompactNoteDisplay = ({ note, maxLength = 50 }: { note: string; maxLength?: number }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  if (!note) return null;
+  
+  const isLong = note.length > maxLength;
+  const displayText = isLong && !isExpanded ? `${note.slice(0, maxLength)}...` : note;
+  
+  return (
+    <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-200">
+      <div className="flex items-start gap-2">
+        <MessageSquare className="h-3 w-3 text-[#115e59] mt-0.5 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium text-[#115e59] mb-1">備考</div>
+          <div className="text-xs text-slate-600 break-words leading-relaxed">
+            {displayText}
+            {isLong && (
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="ml-2 text-[#115e59] hover:text-[#0f766e] font-medium text-xs underline"
+              >
+                {isExpanded ? '省略表示' : '全文表示'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const statusLabels: Record<string, { label: string; color: string }> = {
   pending: { label: '注文受付', color: 'bg-blue-100 text-blue-800' },
   confirmed: { label: '注文確定', color: 'bg-green-100 text-green-800' },
@@ -112,7 +145,7 @@ const getDisplayStatus = (order: Order) => {
       order.status === 'pending') {  
     return 'pending'; // statusLabelsでは'pending'が「注文受付」に対応
   }
-  // その他のステータス（partially_delivered, shipped, delivered等）はそのまま返す
+  // その他のステータス（partially_delivered, shipped, deliveredなど）はそのまま返す
   return order.status;
 };
 
@@ -144,69 +177,67 @@ function AdminOrderManagementPage() {
 
   const API_URL = ENV.API_URL;
 
-const fetchOrders = useCallback(async () => {
-  try {
-    setIsLoading(true);
-    
-    const apiUrl = ENV.API_URL;
-    const token = localStorage.getItem("adminToken");
-    
-    
-    if (!token) {
-      console.error('❌ 管理者トークンがありません');
-      toast.error('認証が必要です。ログインしてください。');
-      router.push('/login');
-      return;
-    }
-
-    const response = await fetch(`${apiUrl}/api/admin/orders`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    });
-
-    console.log('🌐 API Response:', {
-      status: response.status,
-      statusText: response.statusText,
-      url: response.url
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      console.log('✅ 受注データ取得成功:', data.length, '件');
-      setOrders(data);
-    } else {
-      const errorData = await response.text();
-      console.error('❌ API エラー:', response.status, errorData);
+  const fetchOrders = useCallback(async () => {
+    try {
+      setIsLoading(true);
       
-      if (response.status === 401) {
-        toast.error('認証が失効しました。再ログインしてください。');
-        localStorage.removeItem('adminToken');
+      const apiUrl = ENV.API_URL;
+      const token = localStorage.getItem("adminToken");
+      
+      if (!token) {
+        console.error('❌ 管理者トークンがありません');
+        toast.error('認証が必要です。ログインしてください。');
         router.push('/login');
-      } else if (response.status === 403) {
-        toast.error('アクセスが拒否されました。CORS設定を確認してください。');
-      } else if (response.status === 404) {
-        toast.error('APIエンドポイントが見つかりません');
-      } else {
-        toast.error(`サーバーエラー: ${response.status}`);
+        return;
       }
-    }
-  } catch (error) {
-    console.error('🚨 ネットワークエラー:', error);
-    
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      toast.error('APIサーバーに接続できません。サーバーが起動しているか確認してください。');
-    } else {
-      toast.error('予期しないエラーが発生しました');
-    }
-  } finally {
-    setIsLoading(false);
-  }
-}, [router]);
 
+      const response = await fetch(`${apiUrl}/api/admin/orders`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+
+      console.log('🌐 API Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ 受注データ取得成功:', data.length, '件');
+        setOrders(data);
+      } else {
+        const errorData = await response.text();
+        console.error('❌ API エラー:', response.status, errorData);
+        
+        if (response.status === 401) {
+          toast.error('認証が失効しました。再ログインしてください。');
+          localStorage.removeItem('adminToken');
+          router.push('/login');
+        } else if (response.status === 403) {
+          toast.error('アクセスが拒否されました。CORS設定を確認してください。');
+        } else if (response.status === 404) {
+          toast.error('APIエンドポイントが見つかりません');
+        } else {
+          toast.error(`サーバーエラー: ${response.status}`);
+        }
+      }
+    } catch (error) {
+      console.error('🚨 ネットワークエラー:', error);
+      
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        toast.error('APIサーバーに接続できません。サーバーが起動しているか確認してください。');
+      } else {
+        toast.error('予期しないエラーが発生しました');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
 
   useEffect(() => {
     fetchOrders();
@@ -796,6 +827,9 @@ const fetchOrders = useCallback(async () => {
                 </div>
               </div>
 
+              {/* 🆕 備考欄を注文商品一覧の後に挿入 */}
+              {order.userNote && <CompactNoteDisplay note={order.userNote} />}
+
               <div className="flex items-center justify-between">
                 <div className="flex items-start gap-2">
                   <MapPin className="h-4 w-4 mt-1 text-red-400" />
@@ -1041,7 +1075,11 @@ const fetchOrders = useCallback(async () => {
                             ✓
                           </span>
                         )}
-                      </div>                    
+                      </div>
+
+                      {/* 🆕 詳細モーダル内にも備考欄を表示 */}
+                      {selectedOrder.userNote && <CompactNoteDisplay note={selectedOrder.userNote} />}
+
                         {selectedOrder.cancelReason && (
                         <div className="mt-2 p-3 bg-orange-50 rounded border border-orange-200">
                           <div className="flex items-center gap-2 mb-2">
@@ -1276,7 +1314,7 @@ const fetchOrders = useCallback(async () => {
 
       {/* 書類作成モーダル */}
       {showCreateDocModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <FileText className="h-5 w-5" />

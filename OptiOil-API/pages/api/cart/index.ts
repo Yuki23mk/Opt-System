@@ -84,6 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   capacity: true,
                   unit: true,
                   oilType: true,
+                  packageType: true, // 荷姿項目追加
                 },
               },
             },

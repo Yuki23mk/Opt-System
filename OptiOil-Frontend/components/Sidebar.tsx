@@ -345,9 +345,13 @@ export default function Sidebar({ isCollapsed = false, onToggle }: SidebarProps)
                 <p className="text-teal-200 text-xs truncate">
                   {userInfo?.email || ''}
                 </p>
-                {/* 🆕 承認権限バッジ */}
+                {/* 🔧 修正: 承認権限バッジのスタイル改善 */}
                 {hasApprovalPermission() && (
-                  <div className="bg-amber-500 text-white text-xs px-1 rounded" title="承認権限あり">
+                  <div 
+                    className="bg-amber-500 text-white text-xs px-2 py-1 rounded flex items-center justify-center whitespace-nowrap leading-none" 
+                    title="承認権限あり"
+                    style={{ minHeight: '20px' }} // 高さを明示的に指定
+                  >
                     注文承認者
                   </div>
                 )}

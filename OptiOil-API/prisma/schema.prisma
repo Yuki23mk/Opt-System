@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -118,6 +118,7 @@ model Order {
   cancelReason        String?
   cancelRejectReason  String? 
   adminNote          String?
+  userNote           String?  // 🆕 ユーザー備考欄を追加
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
   requiresApproval Boolean  @default(false)
@@ -380,6 +381,7 @@ model AdminProductMaster {
   capacity        String
   unit            String
   oilType         String
+  packageType     String?          // 🆕 荷姿（缶、ドラム等）追加
   internalTag     String?
   active          Boolean          @default(true)
   createdAt       DateTime         @default(now())

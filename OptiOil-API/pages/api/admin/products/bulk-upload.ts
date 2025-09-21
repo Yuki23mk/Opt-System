@@ -1,6 +1,6 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/admin/products/bulk-upload.ts
- * 管理者用 - 商品マスターCSV一括アップロードAPI
+ * 管理者用 - 商品マスターCSV一括アップロードAPI（荷姿項目対応版）
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';
@@ -80,7 +80,7 @@ function verifyAdminToken(req: NextApiRequest) {
   }
 }
 
-// CSVデータの型定義
+// CSVデータの型定義（荷姿項目追加）
 interface CsvProductData {
   code: string;
   name: string;
@@ -88,6 +88,7 @@ interface CsvProductData {
   capacity: string;
   unit: string;
   oilType: string;
+  packageType?: string; // 🆕 荷姿項目追加（任意）
 }
 
 // バリデーション関数
@@ -118,6 +119,8 @@ function validateProductData(data: any): { isValid: boolean; errors: string[] } 
     errors.push('油種は必須です');
   }
   
+  // 🆕 荷姿は任意項目なのでバリデーションしない
+  
   return {
     isValid: errors.length === 0,
     errors
@@ -134,9 +137,7 @@ function parseCSVFile(filePath: string): Promise<CsvProductData[]> {
       reject(new Error(`ファイルが見つかりません: ${filePath}`));
       return;
     }
-    
-    console.log('📄 CSVファイル解析開始:', filePath);
-    
+       
     fs.createReadStream(filePath, { encoding: 'utf8' })
       .pipe(csv())
       .on('data', (data: any) => {
@@ -155,6 +156,8 @@ function parseCSVFile(filePath: string): Promise<CsvProductData[]> {
           capacity: normalizedData.capacity || normalizedData['容量'] || '',
           unit: normalizedData.unit || normalizedData['単位'] || '',
           oilType: normalizedData.oiltype || normalizedData.oil_type || normalizedData['油種'] || '',
+          // 🆕 荷姿項目のマッピング追加
+          packageType: normalizedData.packagetype || normalizedData.package_type || normalizedData['荷姿'] || normalizedData['包装'] || '',
         };
         
         results.push(mappedData);
@@ -206,7 +209,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const admin = verifyAdminToken(req);
-    console.log('📤 CSV一括アップロード開始:', admin.username);
 
     // アップロードディレクトリを確保
     const uploadDir = path.join(process.cwd(), 'uploads');
@@ -229,12 +231,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     tempFilePath = file.filepath;
-    console.log('📁 アップロードされたファイル:', {
-      originalFilename: file.originalFilename,
-      filepath: tempFilePath,
-      size: file.size,
-      mimetype: file.mimetype
-    });
 
     // CSVファイルかチェック
     if (file.mimetype !== 'text/csv' && !file.originalFilename?.endsWith('.csv')) {
@@ -247,8 +243,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (csvData.length === 0) {
       return res.status(400).json({ error: 'CSVファイルにデータが含まれていません' });
     }
-
-    console.log(`📊 処理するデータ: ${csvData.length}行`);
 
     let successCount = 0;
     let errorCount = 0;
@@ -287,6 +281,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           continue;
         }
 
+        // 🆕 荷姿の処理（空文字列の場合はnullに変換）
+        const packageType = rowData.packageType && rowData.packageType.trim() !== '' 
+          ? rowData.packageType.trim() 
+          : null;
+
         // 商品を作成
         await prisma.adminProductMaster.create({
           data: {
@@ -296,11 +295,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             capacity: rowData.capacity.trim(),
             unit: rowData.unit.trim(),
             oilType: rowData.oilType.trim(),
+            packageType: packageType, // 🆕 荷姿フィールド追加
             active: true,
           }
         });
 
-        console.log(`✅ 商品作成成功: ${rowData.code} - ${rowData.name}`);
         successCount++;
 
       } catch (error) {
@@ -326,8 +325,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (logError) {
       console.error('⚠️ 操作ログ記録エラー:', getErrorMessage(logError));
     }
-
-    console.log(`✅ CSV一括アップロード完了: 成功${successCount}件, エラー${errorCount}件`);
 
     return res.status(200).json({
       message: 'CSV一括アップロードが完了しました',

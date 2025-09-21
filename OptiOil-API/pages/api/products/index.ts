@@ -1,4 +1,4 @@
-//OptiOil-API/pages/api/products/index.ts (TypeScriptエラー修正版)
+//OptiOil-API/pages/api/products/index.ts (packageType追加版)
 //JWTではuserid, companyId, emailを使用
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
@@ -51,6 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           capacity: '1',
           unit: 'L',
           oilType: 'Unknown',
+          packageType: null, // 🆕 荷姿項目（新規作成時はnull）
           internalTag: description || null,
         }
       });
@@ -143,6 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           productMasterId,
           companyProductId: companyProduct.id,
           enabled: companyProduct.enabled,
+          packageType: companyProduct.productMaster.packageType, // 🆕 荷姿ログ出力
           tagCount: productTags.length
         });
         
@@ -155,10 +157,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           capacity: companyProduct.productMaster.capacity,
           unit: companyProduct.productMaster.unit,
           oilType: companyProduct.productMaster.oilType,
+          packageType: companyProduct.productMaster.packageType, // 🆕 荷姿項目追加
           tags: companyProduct.productMaster.internalTag || '',
           displayOrder: companyProduct.displayOrder || 0,
           price: companyProduct.price || 0,
-          packaging: '', // 既存のフロントエンドとの互換性のため保持
+          packaging: '', // 既存のフロントエンドとの互換性のため保持（packageTypeとは別項目）
           userTags: productTags,
           // 会社レベルの有効/無効
           enabled: companyProduct.enabled,
@@ -178,6 +181,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           id: firstProduct.id,
           productMasterId: firstProduct.productMasterId,
           name: firstProduct.name,
+          packageType: firstProduct.packageType, // 🆕 荷姿ログ出力
           companyProductId: firstProduct.companyProductId,
           enabled: firstProduct.enabled
         });

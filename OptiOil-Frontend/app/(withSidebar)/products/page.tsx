@@ -1,6 +1,6 @@
 /**
  * ファイルパス: app/(withSidebar)/products/page.tsx
- * 商品一覧表示（統一スタイル刷新版）
+ * 商品一覧表示（統一スタイル刷新版 + packageType追加）
  */
 
 "use client";
@@ -23,7 +23,7 @@ import { useDocumentPreview } from '../common/hooks/useDocumentPreview';
 
 import { ENV } from '@/lib/env';
 
-// 型定義（スキーマ対応版）
+// 型定義（スキーマ対応版 + packageType追加）
 interface UserTag {
   id: number;
   name: string;
@@ -40,7 +40,7 @@ interface Product {
   manufacturer: string;
   capacity: string;
   unit: string;
-  packaging: string;
+  packageType?: string; // 🆕 荷姿（缶、ドラム、ペール缶等）
   oilType: string;
   tags: string;
   displayOrder: number;
@@ -1005,7 +1005,7 @@ export default function ProductListPage() {
                     </div>
                   </div>
 
-                  {/* 詳細情報 */}
+                  {/* 詳細情報（修正版：容量、荷姿、油種の順序） */}
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
                       <span className="text-xs text-slate-500">容量</span>
@@ -1014,6 +1014,12 @@ export default function ProductListPage() {
                       </p>
                     </div>
                     <div>
+                      <span className="text-xs text-slate-500">荷姿</span>
+                      <p className={`text-sm font-medium ${expired ? 'text-slate-400' : 'text-slate-700'}`}>
+                        {product.packageType || '-'}
+                      </p>
+                    </div>
+                    <div className="col-span-2">
                       <span className="text-xs text-slate-500">油種</span>
                       <p className={`text-sm font-medium ${expired ? 'text-slate-400' : 'text-slate-700'}`}>
                         {product.oilType}
@@ -1112,7 +1118,7 @@ export default function ProductListPage() {
             })}
           </div>
 
-          {/* PC表示（md以上） - テーブル形式 */}
+          {/* PC表示（md以上） - テーブル形式（カラム順序修正版） */}
           <div className="hidden md:block">
             <div className="table-container">
               <table className="w-full">
@@ -1120,8 +1126,9 @@ export default function ProductListPage() {
                   <tr>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-left">No.</th>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-left">製品名</th>
-                    <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-left">メーカー</th>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-center">容量</th>
+                    <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-center">荷姿</th>
+                    <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-left">メーカー</th>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-center">油種</th>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-center">タグ</th>
                     <th className="bg-[#115e59] text-white px-3 py-2 text-xs font-semibold text-center">利用状況</th>
@@ -1156,10 +1163,13 @@ export default function ProductListPage() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-3 py-2 text-xs ${expired ? 'text-slate-400' : 'text-slate-700'}`}>{product.manufacturer}</td>
                         <td className={`px-3 py-2 text-xs text-center ${expired ? 'text-slate-400' : 'text-slate-700'}`}>
                           {product.capacity}{product.unit}
                         </td>
+                        <td className={`px-3 py-2 text-xs text-center ${expired ? 'text-slate-400' : 'text-slate-700'}`}>
+                          {product.packageType || '-'}
+                        </td>
+                        <td className={`px-3 py-2 text-xs ${expired ? 'text-slate-400' : 'text-slate-700'}`}>{product.manufacturer}</td>
                         <td className={`px-3 py-2 text-xs text-center ${expired ? 'text-slate-400' : 'text-slate-700'}`}>
                           {product.oilType}
                         </td>

@@ -124,7 +124,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         productMaster: {
           select: {
             name: true,
-            code: true
+            code: true,
+            capacity: true,     // 🆕 容量追加
+            unit: true,         // 🆕 単位追加
+            packageType: true   // 🆕 荷姿追加
           }
         },
         company: {
@@ -190,6 +193,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       filename: document.filename,
       productName: document.productMaster?.name,
       productCode: document.productMaster?.code,
+      productCapacity: document.productMaster?.capacity,         // 🆕 容量ログ追加
+      productUnit: document.productMaster?.unit,                 // 🆕 単位ログ追加
+      productPackageType: document.productMaster?.packageType,   // 🆕 荷姿ログ追加
       companyName: document.company?.name,
       uploadedByAdmin: document.uploadedByAdmin?.username
     });

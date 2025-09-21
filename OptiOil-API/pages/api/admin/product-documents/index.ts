@@ -220,7 +220,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
         include: {
           productMaster: {
-            select: { id: true, code: true, name: true, manufacturer: true }
+            select: { 
+              id: true, 
+              code: true, 
+              name: true, 
+              manufacturer: true,
+              capacity: true,     // 🆕 容量追加
+              unit: true,         // 🆕 単位追加  
+              packageType: true   // 🆕 荷姿追加
+            }
           },
           company: {
             select: { id: true, name: true }
@@ -299,7 +307,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // 商品・会社情報取得
       const [productMaster, company] = await Promise.all([
-        prisma.adminProductMaster.findUnique({ where: { id: productMasterId } }),
+        prisma.adminProductMaster.findUnique({ 
+          where: { id: productMasterId },
+          select: { 
+            id: true, 
+            name: true, 
+            code: true, 
+            manufacturer: true,
+            capacity: true,     // 🆕 容量追加
+            unit: true,         // 🆕 単位追加
+            packageType: true   // 🆕 荷姿追加
+          }
+        }),
         prisma.company.findUnique({ where: { id: companyId } })
       ]);
 
@@ -411,7 +430,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const document = await prisma.productDocument.findUnique({
         where: { id: documentId },
         include: {
-          productMaster: { select: { name: true, code: true } },
+          productMaster: { 
+            select: { 
+              name: true, 
+              code: true,
+              capacity: true,     // 🆕 容量追加
+              unit: true,         // 🆕 単位追加
+              packageType: true   // 🆕 荷姿追加
+            } 
+          },
           company: { select: { id: true, name: true } },
           uploadedBy: { select: { id: true, name: true, status: true } },
           uploadedByAdmin: { select: { id: true, username: true, status: true } }

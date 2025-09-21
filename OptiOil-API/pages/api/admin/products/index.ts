@@ -16,12 +16,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).end();
   }
 
-  // 開発中は認証をスキップ（本番では認証を追加）
-  // const token = req.headers.authorization?.replace('Bearer ', '');
-  // if (!token) {
-  //   return res.status(401).json({ error: 'Unauthorized' });
-  // }
-
   if (req.method === 'GET') {
     try {
       const { search = '' } = req.query;
@@ -34,6 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             { name: { contains: searchStr } },
             { manufacturer: { contains: searchStr } },
             { oilType: { contains: searchStr } },
+            { packageType: { contains: searchStr } }, // 🆕 荷姿での検索対応
           ],
         } : undefined,
         orderBy: { code: 'asc' },
@@ -67,6 +62,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           capacity: data.capacity,
           unit: data.unit,
           oilType: data.oilType,
+          packageType: data.packageType || null, // 🆕 荷姿フィールド追加
           internalTag: data.internalTag || null,
           active: true,
         },

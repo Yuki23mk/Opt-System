@@ -16,6 +16,7 @@ interface CartItem {
     capacity: string;
     unit: string;
     oilType: string;
+    packageType?: string; // 🆕 荷姿項目追加
   };
   price?: number;
   enabled?: boolean;
@@ -28,6 +29,7 @@ interface CartState {
   totalAmount: number;
   isLoading: boolean;
   lastSyncTime: number | null;
+  userNote: string; // 🆕 備考欄の状態管理追加
 }
 
 // アクション型
@@ -38,7 +40,8 @@ type CartAction =
   | { type: 'UPDATE_ITEM'; payload: { id: number; quantity: number } }
   | { type: 'REMOVE_ITEM'; payload: number }
   | { type: 'CLEAR_CART' }
-  | { type: 'SET_SYNC_TIME'; payload: number };
+  | { type: 'SET_SYNC_TIME'; payload: number }
+  | { type: 'SET_USER_NOTE'; payload: string }; // 🆕 備考欄アクション追加
 
 // 初期状態
 const initialState: CartState = {
@@ -47,6 +50,7 @@ const initialState: CartState = {
   totalAmount: 0,
   isLoading: false,
   lastSyncTime: null,
+  userNote: '', // 🆕 初期備考欄
 };
 
 // リデューサー
@@ -67,7 +71,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 
     case 'ADD_ITEM':
       const newItem = action.payload;
-        // ★★★ 安全策：数量が異常に大きい場合は1に制限
+        // 安全策：数量が異常に大きい場合は1に制限
         if (newItem.quantity > 100) {
             console.warn('⚠️ 異常な数量を検出:', newItem.quantity, '→ 1に制限');
             newItem.quantity = 1;
@@ -79,7 +83,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         // 既存アイテムの数量を更新
         updatedItems = state.items.map((item, index) =>
           index === existingIndex
-            ? { ...item, quantity: newItem.quantity } // ★★★ 加算ではなく置き換え
+            ? { ...item, quantity: newItem.quantity } // 加算ではなく置き換え
             : item
         );
       } else {
@@ -124,12 +128,19 @@ function cartReducer(state: CartState, action: CartAction): CartState {
         items: [],
         totalQuantity: 0,
         totalAmount: 0,
+        userNote: '', // 🆕 備考欄もクリア
       };
 
     case 'SET_SYNC_TIME':
       return {
         ...state,
         lastSyncTime: action.payload,
+      };
+
+    case 'SET_USER_NOTE':
+      return {
+        ...state,
+        userNote: action.payload,
       };
 
     default:
@@ -146,6 +157,7 @@ interface CartContextType {
   clearCart: () => Promise<void>;
   refreshCart: () => Promise<void>;
   syncWithServer: () => Promise<void>;
+  setUserNote: (note: string) => void; // 🆕 備考欄設定関数追加
 }
 
 // コンテキスト作成
@@ -202,6 +214,7 @@ export function CartProvider({ children }: CartProviderProps) {
             capacity: item.companyProduct.productMaster.capacity,
             unit: item.companyProduct.productMaster.unit,
             oilType: item.companyProduct.productMaster.oilType,
+            packageType: item.companyProduct.productMaster.packageType, // 荷姿項目追加
           },
           price: item.companyProduct.price,
           enabled: item.companyProduct.enabled,
@@ -241,29 +254,21 @@ export function CartProvider({ children }: CartProviderProps) {
         throw new Error('商品情報に問題があります');
       }
 
-    // ★★★ 緊急修正：数量を絶対に1に固定（カートアイコンクリック時）
+    // 緊急修正：数量を絶対に1に固定（カートアイコンクリック時）
     const safeQuantity = Math.max(1, Math.min(quantity, 1)); // 最小1、最大1に制限
-
-    console.log('📦 カート追加リクエスト:', {
-      companyProductId,
-      quantity: safeQuantity,
-      productName: product.name
-    });
 
     const response = await fetch(`${API_URL}/api/cart`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         companyProductId,
-        quantity: safeQuantity, // ★★★ 必ず1個
+        quantity: safeQuantity, // 必ず1個
       }),
     });
 
       if (response.ok) {
         // サーバーレスポンスを取得してローカル状態を更新
         const result = await response.json();
-
-        console.log('📦 カート追加レスポンス:', result);
 
         const newCartItem: CartItem = {
           id: result.data.id,
@@ -277,13 +282,14 @@ export function CartProvider({ children }: CartProviderProps) {
             capacity: result.data.companyProduct.productMaster.capacity,
             unit: result.data.companyProduct.productMaster.unit,
             oilType: result.data.companyProduct.productMaster.oilType,
+            packageType: result.data.companyProduct.productMaster.packageType, // 荷姿項目追加
           },
           price: result.data.companyProduct.price,
           enabled: result.data.companyProduct.enabled,
           createdAt: result.data.createdAt,
         };
 
-      // ★★★ 修正：既存アイテムのチェックを削除（サーバーで管理）
+      // 修正：既存アイテムのチェックを削除（サーバーで管理）
       // 既存アイテムの数量更新ではなく、完全に新しいアイテムとして追加
       const existingItemIndex = state.items.findIndex(item => item.companyProductId === companyProductId);
       
@@ -376,7 +382,7 @@ const clearCart = async () => {
       return;
     }
 
-    // ★★★ 修正：個別削除でカートクリアを実現
+    // 修正：個別削除でカートクリアを実現
     // clearエンドポイントが存在しない場合のフォールバック
     if (state.items.length === 0) {
       dispatch({ type: 'CLEAR_CART' });
@@ -413,6 +419,11 @@ const clearCart = async () => {
     await refreshCart();
   };
 
+  // 🆕 備考欄設定関数
+  const setUserNote = (note: string) => {
+    dispatch({ type: 'SET_USER_NOTE', payload: note });
+  };
+
   // 初回ログイン時とページリロード時にカートを取得
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -447,6 +458,7 @@ const clearCart = async () => {
     clearCart,
     refreshCart,
     syncWithServer,
+    setUserNote, // 🆕 備考欄関数を追加
   };
 
   return (

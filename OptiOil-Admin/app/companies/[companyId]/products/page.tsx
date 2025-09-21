@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Search, Plus, Save, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle,
   Calendar as CalendarIcon, Clock, CalendarClock, Edit, Trash2, RefreshCw, History,
+  Package
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -48,6 +49,7 @@ interface ProductMaster {
   unit: string;
   oilType: string;
   internalTag?: string;
+  packageType?: string;
   active: boolean;
   companyProduct: { 
     id: number;
@@ -112,7 +114,6 @@ export default function CompanyProductsPage() {
   const [selectedProductForHistory, setSelectedProductForHistory] = useState<ProductMaster | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyLimit] = useState(10); // 1ページ10件
-
 
   // 認証チェック
   useEffect(() => {
@@ -234,7 +235,8 @@ export default function CompanyProductsPage() {
       product.name.toLowerCase().includes(addSearchTerm.toLowerCase()) ||
       product.code.toLowerCase().includes(addSearchTerm.toLowerCase()) ||
       product.manufacturer.toLowerCase().includes(addSearchTerm.toLowerCase()) ||
-      product.oilType.toLowerCase().includes(addSearchTerm.toLowerCase())
+      product.oilType.toLowerCase().includes(addSearchTerm.toLowerCase()) ||
+      (product.packageType && product.packageType.toLowerCase().includes(addSearchTerm.toLowerCase())) // 🆕 荷姿での検索追加
     );
   }, [allProducts, addSearchTerm]);
 
@@ -248,7 +250,8 @@ export default function CompanyProductsPage() {
         return (
           product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           product.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          product.manufacturer.toLowerCase().includes(searchTerm.toLowerCase())
+          product.manufacturer.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (product.packageType && product.packageType.toLowerCase().includes(searchTerm.toLowerCase()))
         );
       });
     }
@@ -739,7 +742,7 @@ export default function CompanyProductsPage() {
                       <div className="flex items-center space-x-2 flex-shrink-0">
                         <Search className="w-4 h-4 text-muted-foreground" />
                         <Input
-                          placeholder="商品名、コード、メーカーで検索..."
+                          placeholder="商品名、コード、メーカー、荷姿で検索..."
                           value={addSearchTerm}
                           onChange={(e) => setAddSearchTerm(e.target.value)}
                           className="flex-1"
@@ -772,13 +775,14 @@ export default function CompanyProductsPage() {
                                 <TableHead className="w-24 min-w-24 text-xs">メーカー</TableHead>
                                 <TableHead className="w-16 min-w-16 text-xs">容量</TableHead>
                                 <TableHead className="w-20 min-w-20 text-xs">油種</TableHead>
+                                <TableHead className="w-16 min-w-16 text-xs">荷姿</TableHead>
                                 <TableHead className="w-16 min-w-16 text-xs">タグ</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {availableProducts.length === 0 ? (
                                 <TableRow>
-                                  <TableCell colSpan={7} className="text-center py-8 text-sm">
+                                  <TableCell colSpan={8} className="text-center py-8 text-sm">
                                     {addSearchTerm ? '検索条件に一致する商品がありません' : '追加可能な商品がありません'}
                                   </TableCell>
                                 </TableRow>
@@ -805,6 +809,9 @@ export default function CompanyProductsPage() {
                                     </TableCell>
                                     <TableCell className="text-xs p-2 max-w-20 truncate" title={product.oilType}>
                                       {product.oilType}
+                                    </TableCell>
+                                    <TableCell className="text-xs p-2 max-w-20 truncate" title={product.packageType}>
+                                      {product.packageType || '未設定'}
                                     </TableCell>
                                     <TableCell className="p-2">
                                       {product.internalTag && (
@@ -850,7 +857,7 @@ export default function CompanyProductsPage() {
               <div className="flex items-center space-x-2">
                 <Search className="w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="商品名、コード、メーカーで検索..."
+                  placeholder="商品名、コード、メーカー、荷姿で検索..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-80"
@@ -879,6 +886,7 @@ export default function CompanyProductsPage() {
                     <TableHead className="w-40">メーカー</TableHead>
                     <TableHead className="w-24">容量</TableHead>
                     <TableHead className="w-32">油種</TableHead>
+                    <TableHead className="w-24">荷姿</TableHead>
                     <TableHead className="w-32">税抜単価（円）</TableHead>
                     <TableHead className="w-40">見積期限</TableHead>
                     <TableHead className="w-40">スケジュール</TableHead>
@@ -889,7 +897,7 @@ export default function CompanyProductsPage() {
                 <TableBody>
                   {filteredCompanyProducts.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                         {searchTerm ? '検索条件に一致する商品がありません' : '表示商品がありません'}
                       </TableCell>
                     </TableRow>
@@ -915,6 +923,15 @@ export default function CompanyProductsPage() {
                           <TableCell>{product.manufacturer}</TableCell>
                           <TableCell>{product.capacity}{product.unit}</TableCell>
                           <TableCell>{product.oilType}</TableCell>
+                          
+                          {/* 🆕 荷姿セル追加 */}
+                          <TableCell>
+                            {product.packageType ? (
+                              <span className="text-sm">{product.packageType}</span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">未設定</span>
+                            )}
+                          </TableCell>
                           
                           {/* 税抜単価 */}
                           <TableCell>
@@ -1017,7 +1034,6 @@ export default function CompanyProductsPage() {
                                       
                                       // 終了日チェック
                                       if (!schedule.expiryDate) return false;
-                                      
                                       const now = new Date();
                                       const expiryDate = new Date(schedule.expiryDate);
                                       
@@ -1089,7 +1105,6 @@ export default function CompanyProductsPage() {
                               )}
                             </div>
                           </TableCell>
-
                           <TableCell>
                             <div className="space-y-1">
                               {(() => {
@@ -1119,7 +1134,6 @@ export default function CompanyProductsPage() {
                               })()}
                             </div>
                           </TableCell>
-
                           <TableCell className="text-center">
                             <Button
                               variant="outline"

@@ -49,6 +49,7 @@ interface ProductMaster {
   capacity: string;
   unit: string;
   oilType: string;
+  packageType?: string; // 🆕 荷姿項目追加
   internalTag?: string;
   active: boolean;
   createdAt: string;
@@ -190,10 +191,11 @@ export default function ProductsPage() {
 
   // CSVテンプレートダウンロード
   const downloadCsvTemplate = () => {
-    const headers = ['code', 'name', 'manufacturer', 'capacity', 'unit', 'oilType'];
+    // 🆕 荷姿（packageType）を追加
+    const headers = ['code', 'name', 'manufacturer', 'capacity', 'unit', 'oilType', 'packageType'];
     const sampleData = [
-      ['SAMPLE001', 'サンプル商品1', 'サンプルメーカー', '200', 'L', '切削油'],
-      ['SAMPLE002', 'サンプル商品2', 'テストメーカー', '20', 'L', '作動油'],
+      ['SAMPLE001', 'サンプル商品1', 'サンプルメーカー', '200', 'L', '切削油', '缶'],
+      ['SAMPLE002', 'サンプル商品2', 'テストメーカー', '20', 'L', '作動油', 'ドラム'],
     ];
     
     const csvContent = [headers, ...sampleData]
@@ -210,6 +212,7 @@ export default function ProductsPage() {
     link.click();
     document.body.removeChild(link);
   };
+  
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, active }: { id: number; active: boolean }) => {
       const response = await api.patch(`/api/admin/products/${id}/active`, { active });
@@ -339,6 +342,7 @@ export default function ProductsPage() {
                 </TableHead>
                 <TableHead className="w-44 py-3 px-4 font-semibold">メーカー</TableHead>
                 <TableHead className="w-24 py-3 px-4 font-semibold">容量</TableHead>
+                <TableHead className="w-20 py-3 px-4 font-semibold">荷姿</TableHead>
                 <TableHead className="w-28 py-3 px-4 font-semibold">油種</TableHead>
                 <TableHead className="w-28 py-3 px-4 text-center font-semibold">ステータス</TableHead>
                 <TableHead className="w-32 py-3 px-4 text-center font-semibold">操作</TableHead>
@@ -347,7 +351,7 @@ export default function ProductsPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     <div className="flex items-center justify-center space-x-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
                       <span>読み込み中...</span>
@@ -356,7 +360,7 @@ export default function ProductsPage() {
                 </TableRow>
               ) : products?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     商品が見つかりません
                   </TableCell>
                 </TableRow>
@@ -367,6 +371,7 @@ export default function ProductsPage() {
                     <TableCell className="py-3 px-4 font-medium">{product.name}</TableCell>
                     <TableCell className="py-3 px-4">{product.manufacturer}</TableCell>
                     <TableCell className="py-3 px-4">{product.capacity}{product.unit}</TableCell>
+                    <TableCell className="py-3 px-4">{product.packageType || '-'}</TableCell>
                     <TableCell className="py-3 px-4">{product.oilType}</TableCell>
                     <TableCell className="py-3 px-4 text-center">
                       <Switch
@@ -546,7 +551,7 @@ function CsvUploadForm({
           以下の列を含むCSVファイルをアップロードしてください：
         </p>
         <div className="text-xs font-mono bg-white p-2 rounded border">
-          code,name,manufacturer,capacity,unit,oilType
+          code,name,manufacturer,capacity,unit,oilType,packageType
         </div>
         <Button
           type="button"
@@ -594,6 +599,7 @@ function ProductForm({
     capacity: product?.capacity || '',
     unit: product?.unit || '',
     oilType: product?.oilType || '',
+    packageType: product?.packageType || '', // 🆕 荷姿フィールド追加
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -643,7 +649,7 @@ function ProductForm({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
           <Label htmlFor="capacity">容量</Label>
           <Input
@@ -661,6 +667,15 @@ function ProductForm({
             value={formData.unit}
             onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
             required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="packageType">荷姿</Label>
+          <Input
+            id="packageType"
+            placeholder="缶、ドラム等"
+            value={formData.packageType}
+            onChange={(e) => setFormData({ ...formData, packageType: e.target.value })}
           />
         </div>
       </div>

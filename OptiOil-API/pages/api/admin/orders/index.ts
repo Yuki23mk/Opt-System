@@ -115,7 +115,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         deliveryZipCode: true,
         deliveryPhone: true,
         cancelReason: true,
-        cancelRejectReason: true
+        cancelRejectReason: true,
+        userNote: true
       },
       orderBy: {
         createdAt: 'desc'
@@ -183,7 +184,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             ...order,
             user: {
               ...user,
-              company: company
+              company: company,
+              userNote: order.userNote, 
             },
             orderItems: transformedOrderItems
           };

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ShoppingCart, Plus, Minus, X, AlertCircle } from "lucide-react";
+import { ShoppingCart, Plus, Minus, X, AlertCircle, FileText } from "lucide-react";
 import { useCart } from "../contexts/CartContext";
 import { useConfirmModal } from "./ConfirmModal";
 import { ToastContainer, ToastItem } from "./Toast";
@@ -29,7 +29,7 @@ interface GlobalCartButtonProps {
 
 export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
   // カートコンテキスト
-  const { state: cartState, updateQuantity, removeFromCart, clearCart } = useCart();
+  const { state: cartState, updateQuantity, removeFromCart, clearCart, setUserNote } = useCart();
   const { openConfirm } = useConfirmModal();
   
   // Toast管理
@@ -49,7 +49,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
   // 注文確定
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
-  // 🆕 ユーザー承認権限情報
+  // ユーザー承認権限情報
   const [userInfo, setUserInfo] = useState<any>(null);
 
   // 環境変数
@@ -115,13 +115,13 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
     if (deliveryAddresses.length === 0 && !isLoadingAddresses) {
       await fetchDeliveryAddresses();
     }
-    // 🆕 ユーザー情報も取得
+    // ユーザー情報も取得
     if (!userInfo) {
       await fetchUserInfo();
     }
   };
 
-  // 🆕 ユーザー情報取得
+  // ユーザー情報取得
   const fetchUserInfo = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -137,7 +137,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
 
       if (response.ok) {
         const userData = await response.json();
-        setUserInfo(userData.user); // ✅ user プロパティ内にデータがある
+        setUserInfo(userData.user); // user プロパティ内にデータがある
       }
     } catch (error) {
       console.error('ユーザー情報取得エラー:', error);
@@ -244,7 +244,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
     }
   };
 
-  // 注文確定処理（承認フロー対応）
+  // 注文確定処理（承認フロー対応 + 備考欄対応）
   const handleConfirmOrder = async () => {
     if (!selectedDeliveryId) {
       addToast('配送先を選択してください', 'error');
@@ -264,7 +264,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         return;
       }
 
-      // 🆕 承認が必要かチェック
+      // 承認が必要かチェック
       const requiresApproval = userInfo?.permissions?.orderApproval?.requiresApproval === true;
 
       // 選択された配送先の詳細情報を取得
@@ -294,8 +294,10 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
         deliveryPhone: selectedAddress.phone || '',
         totalAmount: cartState.totalAmount,
         items: orderItems,
-        // 🆕 承認フロー対応
-        requiresApproval: requiresApproval
+        // 承認フロー対応
+        requiresApproval: requiresApproval,
+        // 🆕 備考欄を注文データに含める
+        userNote: cartState.userNote || ''
       };
 
       const response = await fetch(`${API_URL}/api/orders`, {
@@ -310,7 +312,7 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
       if (response.ok) {
         const orderResult = await response.json();
         
-        // 🆕 承認フローに応じたメッセージ分岐
+        // 承認フローに応じたメッセージ分岐
         if (requiresApproval) {
           addToast(
             `承認申請を送信しました（申請番号: ${orderResult.orderNumber}）`,
@@ -458,6 +460,12 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                                     </div>
                                     <div className="text-xs text-slate-500 truncate">
                                       {item.product?.manufacturer || 'Unknown Manufacturer'}
+                                      {/* 荷姿表示追加 */}
+                                      {item.product?.packageType && (
+                                        <span className="ml-1 text-xs text-slate-600">
+                                          | {item.product.packageType}
+                                        </span>
+                                      )}
                                     </div>
                                     {item.enabled === false && (
                                       <div className="flex items-center gap-1 text-xs text-amber-600 mt-1">
@@ -520,6 +528,24 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+
+                  {/* 🆕 備考欄追加 */}
+                  <div className="mt-4 bg-slate-50 p-3 rounded-lg">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <FileText className="w-4 h-4 text-slate-600" />
+                      <label className="text-sm font-medium text-slate-700">備考欄（任意）</label>
+                    </div>
+                    <textarea
+                      value={cartState.userNote}
+                      onChange={(e) => setUserNote(e.target.value)}
+                      className="w-full border border-slate-200 rounded-lg p-2 text-sm resize-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-colors"
+                      rows={2}
+                      maxLength={250}
+                    />
+                    <div className="text-xs text-slate-500 mt-1 text-right">
+                      {cartState.userNote.length}/250文字
                     </div>
                   </div>
 
@@ -710,6 +736,12 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                             <span className="font-medium text-slate-800">
                               {item.product?.name || 'Unknown Product'}
                             </span>
+                            {/* 荷姿表示追加 */}
+                            {item.product?.packageType && (
+                              <span className="text-slate-500 ml-2 text-sm">
+                                ({item.product.packageType})
+                              </span>
+                            )}
                             <span className="text-slate-500 ml-2">× {item.quantity}</span>
                           </div>
                           <span className="font-medium text-slate-800">
@@ -727,6 +759,19 @@ export default function GlobalCartButton({ className }: GlobalCartButtonProps) {
                       </div>
                     </div>
                   </div>
+
+                  {/* 🆕 備考欄表示 */}
+                  {cartState.userNote && (
+                    <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                      <h4 className="font-semibold mb-2 text-slate-800 flex items-center space-x-2">
+                        <FileText className="w-4 h-4" />
+                        <span>備考</span>
+                      </h4>
+                      <p className="text-slate-700 whitespace-pre-wrap bg-white p-3 rounded border">
+                        {cartState.userNote}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex justify-between pt-4">
                     <Button 

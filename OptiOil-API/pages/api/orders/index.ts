@@ -1,6 +1,6 @@
 /**
  * ファイルパス: OptiOil-API/pages/api/orders/index.ts
- * ユーザー用注文取得API（承認フロー対応版・新スキーマ対応・キャンセル拒否理由対応・注文番号重複エラー修正版・日本時間対応） ※JWTではuserIdとcompanyIdを使用
+ * ユーザー用注文取得API（承認フロー対応版・新スキーマ対応・キャンセル拒否理由対応・注文番号重複エラー修正版・日本時間対応・packageType対応・備考欄対応） ※JWTではuserIdとcompanyIdを使用
  */
 
 import { NextApiRequest, NextApiResponse } from 'next';
@@ -272,7 +272,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'GET') {
-      // 注文履歴取得（会社単位・ソート機能付き・承認ステータス表示対応）
+      // 注文履歴取得（会社単位・ソート機能付き・承認ステータス表示対応・備考欄対応）
       const { sortBy = 'createdAt', sortOrder = 'desc', productFilter } = req.query;
 
       const orderBy: any = {};
@@ -340,45 +340,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                       manufacturer: true,
                       capacity: true,
                       unit: true,
-                      oilType: true
+                      oilType: true,
+                      packageType: true  // ✅ 荷姿情報を追加
                     }
                   }
                 }
               }
             }
           },
-          deliveryAddress: true,
-          // 🆕 承認情報を含める
-          approval: {
-            include: {
-              approver: {
-                select: {
-                  id: true,
-                  name: true,
-                  status: true
-                }
+        deliveryAddress: true,
+        // 🆕 承認情報を含める（requesterも追加）
+        approval: {
+          include: {
+            requester: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                status: true
+              }
+            },
+            approver: {
+              select: {
+                id: true,
+                name: true,
+                email: true, 
+                status: true
               }
             }
           }
-        },
-        orderBy
-      });
+        }
+      },
+      orderBy
+    });
 
-      // ✅ 削除済みユーザー表示対応 + 承認情報追加
+      // ✅ 削除済みユーザー表示対応 + 承認情報追加 + 備考欄対応
       const ordersWithDetails = orders.map(order => ({
         ...order,
         user: formatUserForDisplay(order.user), // ✅ ユーザー情報をフォーマット
         cancelRejectReason: order.cancelRejectReason || null,
         cancelMessage: 'キャンセル理由を入力してください。お急ぎの場合は丸一機料商会（084-962-0525）まで直接ご連絡頂けますようお願いします。',
         priceNote: '※価格は税抜表示です',
+        // 🆕 備考欄を含める
+        userNote: order.userNote || null, // 備考欄
         // 🆕 承認情報を追加
-        approvalInfo: order.approval ? {
-          status: order.approval.status,
-          requestedAt: order.approval.requestedAt,
-          approvedAt: order.approval.approvedAt,
-          rejectedAt: order.approval.rejectedAt,
-          rejectionReason: order.approval.rejectionReason,
-          approver: order.approval.approver ? formatUserForDisplay(order.approval.approver) : null
+  // 🆕 フロントエンドが期待する形式にマッピング
+          approval: order.approval ? {
+            ...order.approval,
+            requester: order.approval.requester ? formatUserForDisplay(order.approval.requester) : null,
+            approver: order.approval.approver ? formatUserForDisplay(order.approval.approver) : null
         } : null
       }));
 
@@ -386,7 +396,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(ordersWithDetails);
 
     } else if (req.method === 'POST') {
-      // 新規注文作成（承認フロー対応・新スキーマ対応・注文番号重複エラー修正）
+      // 新規注文作成（承認フロー対応・新スキーマ対応・注文番号重複エラー修正・備考欄対応）
       const { 
         items, 
         deliveryAddressId, 
@@ -399,6 +409,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         deliveryAddress2,
         deliveryPhone,
         totalAmount,
+        // 🆕 備考欄を追加
+        userNote,
         // 🆕 フロントエンドからの承認フラグを受け取る（オプション）
         requiresApproval: frontendRequiresApproval
       } = req.body;
@@ -407,6 +419,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         items: items?.length || 0,
         deliveryAddressId,
         totalAmount,
+        userNote: userNote ? '備考あり' : '備考なし', // 🆕 備考欄の有無をログ
         userId,
         companyId
       });
@@ -556,6 +569,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             deliveryAddress1: deliveryInfo.address1,
             deliveryAddress2: deliveryInfo.address2,
             deliveryPhone: deliveryInfo.phone,
+            // 🆕 備考欄を追加
+            userNote: userNote ? userNote.trim() : null,
           },
           include: {
             user: {
@@ -634,6 +649,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         orderId: result.order.id,
         itemCount: result.orderItems.length,
         totalAmount: result.order.totalAmount,
+        userNote: result.order.userNote ? '備考あり' : '備考なし', // 🆕 備考欄の有無をログ
         requiresApproval: result.approvalInfo.requiresApproval
       });
 
