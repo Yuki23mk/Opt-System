@@ -1,8 +1,9 @@
 /**
  * ファイルパス: OptiOil-Admin/app/documents/page.tsx
- * 管理者画面 - 商品ドキュメント管理ページ（デバッグ強化版）
+ * 管理者画面 - 商品ドキュメント管理ページ（ESLintエラー修正版）
  * 
  * 🔧 修正点:
+ * - 未使用変数の削除（product, index）
  * - packageType表示のデバッグ強化
  * - APIレスポンスのログ出力追加
  * - フォールバック表示の改善
@@ -207,11 +208,6 @@ function AdminDocumentManagementPage() {
 
       if (response.ok) {
         const data = await response.json();
-        
-        // 🔧 各商品のpackageType情報をログ出力
-        data.forEach((product: AvailableProduct, index: number) => {
-        });
-
         setAvailableProducts(data);
       } else {
         const errorData = await response.json();
@@ -475,7 +471,7 @@ function AdminDocumentManagementPage() {
       `🏭 ${product.manufacturer}`,
       `商品コード:${product.code}`
     ];
-    const result = parts.join(' ／ ');
+    const result = parts.join(' ｜ ');
     return result;
   };
 
@@ -486,7 +482,7 @@ function AdminDocumentManagementPage() {
       product.packageType ? product.packageType : '荷姿未設定' // 🔧 フォールバック表示追加
     ];
     
-    return parts.length > 0 ? ` (${parts.join(' ／ ')})` : '';
+    return parts.length > 0 ? ` (${parts.join(' ｜ ')})` : '';
   };
 
   if (isLoading) {
@@ -745,7 +741,7 @@ function AdminDocumentManagementPage() {
                           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
                             {(doc.size / 1024 / 1024).toFixed(2)} MB
                           </span>
-                          {/* uploadedByのnullチェックを追加  */}
+                          {/* uploadedByのnullチェックを追加   */}
                           {doc.uploadedBy && (
                             <span className={`text-xs px-2 py-1 rounded ${
                               doc.uploadedBy.isAdmin 

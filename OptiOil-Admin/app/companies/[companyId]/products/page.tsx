@@ -32,7 +32,6 @@ import { toast } from 'sonner';
 import { 
   ArrowLeft, Search, Plus, Save, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle,
   Calendar as CalendarIcon, Clock, CalendarClock, Edit, Trash2, RefreshCw, History,
-  Package
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
