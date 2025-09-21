@@ -3,7 +3,7 @@
  * 管理者API - 会社別利用可能商品取得エンドポイント
  * 指定された会社のCompanyProductに紐づくAdminProductMasterを取得
  * 
- * 🔧 修正点: packageTypeフィールドを追加
+ * 🔧 修正点: packageTypeフィールドを追加、型エラー修正
  */
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrismaClient } from '@prisma/client';
@@ -128,9 +128,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   } catch (error) {
     console.error('❌ 利用可能商品取得エラー:', error);
+    
+    // 🔧 型安全なエラーハンドリング
+    const errorMessage = error instanceof Error ? error.message : '不明なエラーが発生しました';
+    
     res.status(500).json({ 
       error: '利用可能商品の取得に失敗しました',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
     });
   } finally {
     await prisma.$disconnect();
